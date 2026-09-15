@@ -3,6 +3,9 @@ import pandas as pd
 import io
 import os
 import re
+import time
+import base64
+import hashlib
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -11,6 +14,7 @@ st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗",
 
 MASTER_FILE = "master_database.xlsx"
 INVOICE_DB_FILE = "hoa_don_database.xlsx"
+SECRET_KEY_AUTH = "VinFast_GiaLai_Secret_Key_2026"
 
 DANH_SACH_ADMIN = {
     "admin": "Vinfastgialai@2026##"
@@ -42,6 +46,28 @@ TEXT_COLUMNS = [
 
 TRANG_THAI_HOAN_THANH = ['Đã đóng', 'Sẵn sàng bàn giao']
 
+# --- TIỆN ÍCH XÁC THỰC GHI NHỚ ĐĂNG NHẬP 10 NGÀY ---
+def tao_auth_token(username, so_ngay=10):
+    exp_time = int(time.time()) + (so_ngay * 86400)
+    data = f"{username}|{exp_time}"
+    sig = hashlib.sha256(f"{data}|{SECRET_KEY_AUTH}".encode()).hexdigest()[:16]
+    token = base64.urlsafe_b64encode(f"{data}|{sig}".encode()).decode()
+    return token
+
+def xac_thuc_auth_token(token):
+    try:
+        raw = base64.urlsafe_b64decode(token.encode()).decode()
+        username, exp_time, sig = raw.split('|')
+        if int(exp_time) < int(time.time()):
+            return None
+        expected_sig = hashlib.sha256(f"{username}|{exp_time}|{SECRET_KEY_AUTH}".encode()).hexdigest()[:16]
+        if sig == expected_sig and username in DANH_SACH_ADMIN:
+            return username
+    except Exception:
+        return None
+    return None
+
+# --- CÁC HÀM XỬ LÝ CHUẨN HÓA DỮ LIỆU ---
 def clean_lsc_giu_gach(val):
     if pd.isna(val) or val is None:
         return ""
@@ -415,11 +441,19 @@ def xuat_excel_da_sheet_with_progress(df_full, p_bar=None, status_txt=None):
     if status_txt: status_txt.write("✅ ĐÃ CHẠY XONG CHU TRÌNH TẠO BÁO CÁO! (100%)")
     return out
 
-# --- PHÂN QUYỀN ĐĂNG NHẬP (SESSION STATE) ---
+# --- PHÂN QUYỀN ĐĂNG NHẬP & TỰ ĐỘNG GHI NHỚ 10 NGÀY ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
     st.session_state.username = ""
+
+# Kiểm tra nếu trên URL có token ghi nhớ hợp lệ
+token_url = st.query_params.get("auth_token")
+if token_url and not st.session_state.logged_in:
+    valid_user = xac_thuc_auth_token(token_url)
+    if valid_user:
+        st.session_state.logged_in = True
+        st.session_state.username = valid_user
 
 with st.sidebar:
     st.subheader("🔐 Quyền Truy Cập Hệ Thống")
@@ -428,20 +462,27 @@ with st.sidebar:
         with st.form("form_login"):
             u = st.text_input("Tài khoản:", value="")
             p = st.text_input("Mật khẩu:", type="password", value="")
+            remember_me = st.checkbox("Ghi nhớ đăng nhập (10 ngày)", value=True)
             btn_login = st.form_submit_button("Đăng Nhập Quản Trị")
             if btn_login:
                 if u in DANH_SACH_ADMIN and DANH_SACH_ADMIN[u] == p:
                     st.session_state.logged_in = True
                     st.session_state.username = u
+                    if remember_me:
+                        new_token = tao_auth_token(u, so_ngay=10)
+                        st.query_params["auth_token"] = new_token
                     st.success("✅ Đăng nhập thành công!")
                     st.rerun()
                 else:
                     st.error("❌ Sai tài khoản hoặc mật khẩu!")
     else:
         st.success(f"Xin chào: **{st.session_state.username}** (Admin)")
+        st.caption("🟢 Trạng thái: Đã ghi nhớ đăng nhập 10 ngày")
         if st.button("🚪 Đăng Xuất"):
             st.session_state.logged_in = False
             st.session_state.username = ""
+            if "auth_token" in st.query_params:
+                del st.query_params["auth_token"]
             st.rerun()
 
 # --- GIAO DIỆN CHÍNH ---
@@ -478,7 +519,6 @@ with tab_dash:
     st.subheader("📈 Phân Tích Báo Cáo Doanh Thu Từ Bảng Kê Hóa Đơn (Kế Toán)")
     st.caption("Báo cáo phản ánh chính xác 100% từng hóa đơn độc lập, ngày ký phát hành và giá trị thực tế.")
 
-    # Cho phép nạp nhanh bảng kê hóa đơn ngay tại đây nếu chưa có
     with st.expander("📂 Cập nhật hoặc Nạp mới Bảng Kê Hóa Đơn Kế Toán", expanded=(len(df_invoice_db) == 0)):
         up_inv_dash = st.file_uploader("Tải file Bảng Kê Hóa Đơn (Excel/CSV)", type=['xlsx', 'xls', 'csv'], key='up_inv_dash')
         if up_inv_dash:
@@ -523,7 +563,6 @@ with tab_dash:
                 st.success(f"✅ ĐÃ NẠP THÀNH CÔNG {len(df_new_inv)} HÓA ĐƠN VÀO DASHBOARD!")
                 st.rerun()
 
-    # Xử lý báo cáo Dashboard từ df_invoice_db
     if len(df_invoice_db) > 0:
         df_dash_data = df_invoice_db.copy()
         df_dash_data['dt_parsed'] = pd.to_datetime(df_dash_data['Ngày xuất hóa đơn'], format='%d/%m/%Y', errors='coerce')
@@ -554,7 +593,6 @@ with tab_dash:
             m2.metric(f"🧾 Tổng Số Hóa Đơn Đã Xuất", f"{tong_so_hd:,} hóa đơn")
             m3.metric(f"📊 Giá Trị Trung Bình / Hóa Đơn", f"{tb_hd:,.0f} đ")
 
-            # Gom nhóm chính xác theo từng ngày
             df_month['ngay_num'] = df_month['dt_parsed'].dt.day
             df_month['ngay_str'] = df_month['dt_parsed'].dt.strftime('%d/%m')
 
@@ -575,6 +613,7 @@ with tab_dash:
             st.dataframe(tbl_daily, use_container_width=True, hide_index=True)
             
             with st.expander("🔎 Xem danh sách chi tiết tất cả hóa đơn trong tháng này"):
+                # Đã sửa thứ tự: Sắp xếp theo ngày trước rồi mới chọn 4 cột hiển thị
                 st.dataframe(
                     df_month.sort_values('dt_parsed', ascending=False)[['Số lệnh sửa chữa', 'Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']],
                     use_container_width=True,
@@ -915,7 +954,6 @@ if is_admin:
                             inv_aggregated[key_exact]['ngay_hd'].append(nhd_val)
                         inv_aggregated[key_exact]['tong_tien'] += gt_val
 
-                # Lưu đồng thời vào database riêng cho Dashboard
                 if raw_invoices_to_save:
                     save_invoice_db(pd.DataFrame(raw_invoices_to_save))
 
@@ -954,7 +992,7 @@ if is_admin:
                 save_master(df_master)
                 p_bar_inv.progress(100)
                 txt_inv.empty()
-                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa (bao gồm cả các lệnh phát sinh nhiều hóa đơn) và tự động đồng bộ sang Dashboard!")
+                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa và tự động đồng bộ sang Dashboard!")
 
     # TAB 4: IMPORT PHÊ DUYỆT BẢO HÀNH (EXCEL)
     with tab_bh_import:
