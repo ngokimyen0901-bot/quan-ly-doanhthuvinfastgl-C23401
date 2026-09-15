@@ -437,6 +437,7 @@ df_master = load_cached_master()
 
 if st.session_state.logged_in:
     tabs = st.tabs([
+        "📈 0. Dashboard Xuất HĐ Theo Ngày",
         "📊 1. Bảng Tính Web & Phân Luồng",
         "📥 2. Nạp Dữ Liệu DMS Mới",
         "🧾 3. Khớp File Hóa Đơn Kế Toán",
@@ -444,15 +445,84 @@ if st.session_state.logged_in:
         "🚕 5. Quản Lý Công Nợ GSM (Import & Nhập Tay)",
         "🔍 6. Đối Soát Upload Lên Cyber"
     ])
-    tab_work = tabs[0]
-    tab_import = tabs[1]
-    tab_inv = tabs[2]
-    tab_bh_import = tabs[3]
-    tab_gsm_import = tabs[4]
-    tab_cyber = tabs[5]
+    tab_dash = tabs[0]
+    tab_work = tabs[1]
+    tab_import = tabs[2]
+    tab_inv = tabs[3]
+    tab_bh_import = tabs[4]
+    tab_gsm_import = tabs[5]
+    tab_cyber = tabs[6]
 else:
-    tabs = st.tabs(["📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
-    tab_work = tabs[0]
+    tabs = st.tabs(["📈 0. Dashboard Doanh Thu", "📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
+    tab_dash = tabs[0]
+    tab_work = tabs[1]
+
+# TAB 0: DASHBOARD XUẤT HĐ THEO NGÀY
+with tab_dash:
+    st.subheader("📈 Phân Tích Giá Trị Xuất Hóa Đơn & Doanh Thu Theo Ngày")
+    st.caption("Xem thống kê giá trị xuất hóa đơn theo từng ngày trong tháng, trực quan và tức thì.")
+
+    df_hd_valid = df_master[
+        (df_master['Trạng thái'] != 'Đã hủy') & 
+        (df_master['Ngày xuất hóa đơn'].notna()) & 
+        (df_master['Ngày xuất hóa đơn'] != '')
+    ].copy()
+
+    # Tách các trường hợp ngày bị ghép chuỗi (ví dụ: "01/08/2026, 05/08/2026") để lấy ngày đầu tiên tính KPI
+    df_hd_valid['ngay_first'] = df_hd_valid['Ngày xuất hóa đơn'].astype(str).apply(lambda x: str(x).split(',')[0].strip())
+    df_hd_valid['dt_parsed'] = pd.to_datetime(df_hd_valid['ngay_first'], format='%d/%m/%Y', errors='coerce')
+    df_hd_valid = df_hd_valid[df_hd_valid['dt_parsed'].notna()]
+
+    if len(df_hd_valid) > 0:
+        df_hd_valid['nam'] = df_hd_valid['dt_parsed'].dt.year
+        df_hd_valid['thang'] = df_hd_valid['dt_parsed'].dt.month
+
+        c_d1, c_d2 = st.columns([2, 4])
+        with c_d1:
+            list_nam = sorted(df_hd_valid['nam'].unique(), reverse=True)
+            sel_nam = st.selectbox("📅 Chọn Năm:", list_nam, index=0)
+            
+            list_thang = sorted(df_hd_valid[df_hd_valid['nam'] == sel_nam]['thang'].unique())
+            default_thang_idx = list_thang.index(8) if 8 in list_thang else 0
+            sel_thang = st.selectbox("📆 Chọn Tháng:", list_thang, index=default_thang_idx, format_func=lambda m: f"Tháng {m}")
+
+        df_thang = df_hd_valid[(df_hd_valid['nam'] == sel_nam) & (df_hd_valid['thang'] == sel_thang)].copy()
+        
+        tong_tien_thang = df_thang['Giá trị xuất hóa đơn'].sum()
+        if tong_tien_thang == 0:
+            tong_tien_thang = df_thang['Số tiền thanh toán cuối'].sum()
+
+        so_hd_thang = len(df_thang)
+        tb_hd = (tong_tien_thang / so_hd_thang) if so_hd_thang > 0 else 0
+
+        st.markdown("---")
+        m1, m2, m3 = st.columns(3)
+        m1.metric(f"💰 Tổng Tiền Xuất HĐ Tháng {sel_thang}/{sel_nam}", f"{tong_tien_thang:,.0f} đ")
+        m2.metric(f"🧾 Tổng Số Lượng LSC Đã Xuất HĐ", f"{so_hd_thang:,} lệnh")
+        m3.metric(f"📊 Giá Trị Trung Bình / Lệnh", f"{tb_hd:,.0f} đ")
+
+        df_thang['ngay_str'] = df_thang['dt_parsed'].dt.strftime('%d/%m')
+        df_thang['ngay_num'] = df_thang['dt_parsed'].dt.day
+
+        cot_tinh_tien = 'Giá trị xuất hóa đơn' if df_thang['Giá trị xuất hóa đơn'].sum() > 0 else 'Số tiền thanh toán cuối'
+        
+        df_daily = df_thang.groupby(['ngay_num', 'ngay_str']).agg(
+            Tong_Tien=(cot_tinh_tien, 'sum'),
+            So_Luong=('Số lệnh sửa chữa', 'count')
+        ).reset_index().sort_values('ngay_num')
+
+        st.markdown("#### 📊 Biểu Đồ Giá Trị Xuất Hóa Đơn Theo Từng Ngày")
+        chart_data = df_daily.set_index('ngay_str')[['Tong_Tien']]
+        chart_data.columns = ['Giá trị xuất HĐ (VNĐ)']
+        st.bar_chart(chart_data, height=350, use_container_width=True)
+
+        st.markdown("#### 📋 Chi Tiết Bảng Kê Doanh Số Từng Ngày")
+        df_daily_view = df_daily[['ngay_str', 'So_Luong', 'Tong_Tien']].copy()
+        df_daily_view.columns = ['Ngày', 'Số Lệnh Đã Xuất HĐ', 'Tổng Giá Trị Xuất HĐ (VNĐ)']
+        df_daily_view['Tổng Giá Trị Xuất HĐ (VNĐ)'] = df_daily_view['Tổng Giá Trị Xuất HĐ (VNĐ)'].apply(lambda x: f"{x:,.0f} đ")
+        st.dataframe(df_daily_view, use_container_width=True, hide_index=True)
+    else:
+        st.info("ℹ️ Hiện tại chưa có dữ liệu 'Ngày xuất hóa đơn' trong hệ thống. Vui lòng vào Tab **3. Khớp File Hóa Đơn Kế Toán** để nạp dữ liệu.")
 
 # TAB 1: BẢNG TÍNH WEB & KPI
 with tab_work:
@@ -553,7 +623,6 @@ with tab_work:
 
     df_show = chuan_hoa_kieu_du_lieu(df_show)
 
-    # ĐÁNH LẠI CỘT STT LIÊN TỤC 1, 2, 3...
     df_show = df_show.reset_index(drop=True)
     df_show.insert(0, 'STT', range(1, len(df_show) + 1))
 
@@ -640,7 +709,7 @@ with tab_work:
 
 # CÁC TAB CHỨC NĂNG KHI ĐÃ ĐĂNG NHẬP
 if is_admin:
-    # TAB 2: NẠP DỮ LIỆU DMS MỚI (CÓ NÚT XÁC NHẬN RÕ RÀNG, KHÔNG CHẠY TỰ ĐỘNG LẶP LẠI)
+    # TAB 2: NẠP DỮ LIỆU DMS MỚI
     with tab_import:
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
         up_db = st.file_uploader("Kéo thả file Database mới vào đây", type=['csv', 'xlsx'], key='up_dms')
@@ -702,7 +771,7 @@ if is_admin:
                 txt_dms.empty()
                 st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Thêm **{len(new_records)}** lệnh mới và cập nhật trạng thái cho **{status_updated_cnt}** lệnh.")
 
-    # TAB 3: KHỚP HÓA ĐƠN
+    # TAB 3: KHỚP HÓA ĐƠN (GỘP NHIỀU HÓA ĐƠN TRÊN CÙNG 1 LSC)
     with tab_inv:
         st.subheader("Khớp file Hóa Đơn kế toán với Hệ Thống")
         up_inv = st.file_uploader("Tải file Bảng Kê Hóa Đơn", type=['csv', 'xlsx'], key='up_inv_tab')
@@ -733,13 +802,14 @@ if is_admin:
             if st.button("🚀 BẮT ĐẦU KHỚP HÓA ĐƠN", type="primary", use_container_width=True):
                 p_bar_inv = st.progress(0)
                 txt_inv = st.empty()
-                txt_inv.write("⏳ Đang lập bản đồ chỉ mục hóa đơn... (15%)")
+                txt_inv.write("⏳ Đang tổng hợp và gom các hóa đơn theo LSC... (15%)")
                 p_bar_inv.progress(15)
 
                 exact_map = {clean_lsc_giu_gach(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 
-                matched_records = []
+                # TẬP HỢP CÁC HÓA ĐƠN TRÙNG MÃ LSC VÀO TỪNG NHÓM
+                inv_aggregated = {}
                 total_inv_rows = len(df_inv)
 
                 for r_idx in range(total_inv_rows):
@@ -747,53 +817,75 @@ if is_admin:
                     key_exact = clean_lsc_giu_gach(raw_lsc)
                     if not key_exact or len(key_exact) < 4:
                         continue
-                    
-                    m_idx = exact_map.get(key_exact)
+
+                    # Lấy số HĐ
+                    shd_val = str(df_inv.iloc[r_idx, sel_shd_idx]).strip() if pd.notna(df_inv.iloc[r_idx, sel_shd_idx]) else ""
+                    if shd_val.endswith('.0'):
+                        shd_val = shd_val[:-2]
+
+                    # Lấy ngày HĐ
+                    nhd_val = ""
+                    if sel_nhd_idx != -1 and pd.notna(df_inv.iloc[r_idx, sel_nhd_idx]):
+                        nhd_val = clean_ngay_chuan(df_inv.iloc[r_idx, sel_nhd_idx])
+
+                    # Lấy giá trị HĐ
+                    gt_val = 0
+                    if sel_gt_idx != -1 and pd.notna(df_inv.iloc[r_idx, sel_gt_idx]):
+                        try:
+                            gt_val = float(str(df_inv.iloc[r_idx, sel_gt_idx]).replace(',', '').replace(' ', ''))
+                        except ValueError:
+                            gt_val = 0
+
+                    if key_exact not in inv_aggregated:
+                        inv_aggregated[key_exact] = {
+                            'so_hd': [shd_val] if shd_val and shd_val not in ['', 'nan', 'None'] else [],
+                            'ngay_hd': [nhd_val] if nhd_val else [],
+                            'tong_tien': gt_val
+                        }
+                    else:
+                        if shd_val and shd_val not in ['', 'nan', 'None'] and shd_val not in inv_aggregated[key_exact]['so_hd']:
+                            inv_aggregated[key_exact]['so_hd'].append(shd_val)
+                        if nhd_val and nhd_val not in inv_aggregated[key_exact]['ngay_hd']:
+                            inv_aggregated[key_exact]['ngay_hd'].append(nhd_val)
+                        inv_aggregated[key_exact]['tong_tien'] += gt_val
+
+                matched_records = []
+                total_keys = len(inv_aggregated)
+
+                for k_i, (k_lsc, val_dict) in enumerate(inv_aggregated.items()):
+                    m_idx = exact_map.get(k_lsc)
                     if m_idx is None:
-                        m_idx = norm_map.get(norm_lsc_key(key_exact))
-                        
+                        m_idx = norm_map.get(norm_lsc_key(k_lsc))
+
                     if m_idx is not None:
                         if str(df_master.at[m_idx, 'Trạng thái']) == 'Đã hủy':
                             continue
 
-                        shd_val = str(df_inv.iloc[r_idx, sel_shd_idx]).strip() if pd.notna(df_inv.iloc[r_idx, sel_shd_idx]) else ""
-                        if shd_val.endswith('.0'):
-                            shd_val = shd_val[:-2]
-                        df_master.at[m_idx, 'Số hóa đơn'] = shd_val
+                        # Ghép nối các số HĐ nếu có nhiều hóa đơn (ví dụ: "HD01, HD02")
+                        shd_str = ", ".join(val_dict['so_hd'])
+                        nhd_str = ", ".join(val_dict['ngay_hd'])
+                        gt_tong = val_dict['tong_tien']
 
-                        nhd_val = ""
-                        if sel_nhd_idx != -1:
-                            raw_date = df_inv.iloc[r_idx, sel_nhd_idx]
-                            if pd.notna(raw_date):
-                                nhd_val = clean_ngay_chuan(raw_date)
-                                df_master.at[m_idx, 'Ngày xuất hóa đơn'] = nhd_val
-
-                        gt_val = 0
-                        if sel_gt_idx != -1:
-                            raw_gt = df_inv.iloc[r_idx, sel_gt_idx]
-                            if pd.notna(raw_gt):
-                                try:
-                                    gt_val = float(str(raw_gt).replace(',', '').replace(' ', ''))
-                                    df_master.at[m_idx, 'Giá trị xuất hóa đơn'] = gt_val
-                                except ValueError:
-                                    pass
+                        df_master.at[m_idx, 'Số hóa đơn'] = shd_str
+                        df_master.at[m_idx, 'Ngày xuất hóa đơn'] = nhd_str
+                        df_master.at[m_idx, 'Giá trị xuất hóa đơn'] = gt_tong
 
                         matched_records.append({
-                            'Số LSC': key_exact,
-                            'Số Hóa Đơn': shd_val,
-                            'Ngày HĐ': nhd_val,
-                            'Giá Trị HĐ': f"{gt_val:,.0f}" if gt_val else "0"
+                            'Số LSC': k_lsc,
+                            'Số Hóa Đơn': shd_str,
+                            'Ngày HĐ': nhd_str,
+                            'Giá Trị HĐ': f"{gt_tong:,.0f}" if gt_tong else "0"
                         })
 
-                    if r_idx % 30 == 0:
-                        pct = int(15 + (r_idx / total_inv_rows) * 75)
+                    if k_i % 30 == 0:
+                        pct = int(15 + (k_i / max(total_keys, 1)) * 75)
                         p_bar_inv.progress(pct)
-                        txt_inv.write(f"⏳ Đang so khớp: {r_idx}/{total_inv_rows} dòng ({pct}%)")
+                        txt_inv.write(f"⏳ Đang ghi nhận: {k_i}/{total_keys} lệnh ({pct}%)")
 
                 save_master(df_master)
                 p_bar_inv.progress(100)
                 txt_inv.empty()
-                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp thành công **{len(matched_records)}** hóa đơn trong chớp mắt. Dữ liệu ngày trước vẫn nguyên vẹn 100%.")
+                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa (bao gồm cả các lệnh phát sinh nhiều hóa đơn).")
 
     # TAB 4: IMPORT PHÊ DUYỆT BẢO HÀNH (EXCEL)
     with tab_bh_import:
