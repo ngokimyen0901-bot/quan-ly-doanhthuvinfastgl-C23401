@@ -576,7 +576,7 @@ with tab_dash:
             
             with st.expander("🔎 Xem danh sách chi tiết tất cả hóa đơn trong tháng này"):
                 st.dataframe(
-                    df_month[['Số lệnh sửa chữa', 'Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']].sort_values('dt_parsed', ascending=False),
+                    df_month.sort_values('dt_parsed', ascending=False)[['Số lệnh sửa chữa', 'Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']],
                     use_container_width=True,
                     hide_index=True
                 )
