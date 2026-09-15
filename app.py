@@ -10,6 +10,7 @@ from openpyxl.utils import get_column_letter
 st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗", layout="wide")
 
 MASTER_FILE = "master_database.xlsx"
+INVOICE_DB_FILE = "hoa_don_database.xlsx"
 
 DANH_SACH_ADMIN = {
     "admin": "Vinfastgialai@2026##"
@@ -212,6 +213,20 @@ def save_master(df_to_save):
     df_clean.to_excel(MASTER_FILE, index=False)
     load_cached_master.clear()
 
+@st.cache_data(show_spinner=False)
+def load_cached_invoices():
+    if os.path.exists(INVOICE_DB_FILE):
+        try:
+            df_inv_db = pd.read_excel(INVOICE_DB_FILE)
+            return df_inv_db
+        except Exception:
+            return pd.DataFrame()
+    return pd.DataFrame()
+
+def save_invoice_db(df_inv_clean):
+    df_inv_clean.to_excel(INVOICE_DB_FILE, index=False)
+    load_cached_invoices.clear()
+
 def tao_file_mau_gsm():
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -376,7 +391,7 @@ def xuat_excel_da_sheet_with_progress(df_full, p_bar=None, status_txt=None):
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df_canh_bao.to_excel(writer, index=False, sheet_name='🚨 Chưa Xuất HĐ (KH & BH)')
         df_kh_all.to_excel(writer, index=False, sheet_name='1. KH Thanh Toán (Đã Đóng)')
-        df_gsm_debt.to_excel(writer, index=False, sheet_name='2. GSM Công Nợ (Tách Riêng)')
+        df_gsm_debt.to_excel(writer, index=False, sheet_name='2. GSM Công NỢ (Tách Riêng)')
         df_bh_hang.to_excel(writer, index=False, sheet_name='3. Bảo Hành Hãng (W)')
         df_bh.to_excel(writer, index=False, sheet_name='4. Bảo Hiểm (Insurance)')
         df_noi_bo.to_excel(writer, index=False, sheet_name='5. Nội Bộ Thanh Toán')
@@ -432,12 +447,13 @@ with st.sidebar:
 # --- GIAO DIỆN CHÍNH ---
 st.title("🚗 Quản Trị Dịch Vụ, Hóa Đơn & Đối Soát Cyber")
 
-# Đọc dữ liệu nhanh từ RAM Cache
+# Đọc dữ liệu Master và Dữ liệu Hóa đơn
 df_master = load_cached_master()
+df_invoice_db = load_cached_invoices()
 
 if st.session_state.logged_in:
     tabs = st.tabs([
-        "📈 0. Dashboard Xuất HĐ Theo Ngày",
+        "📈 0. Dashboard Bảng Kê Hóa Đơn",
         "📊 1. Bảng Tính Web & Phân Luồng",
         "📥 2. Nạp Dữ Liệu DMS Mới",
         "🧾 3. Khớp File Hóa Đơn Kế Toán",
@@ -453,76 +469,121 @@ if st.session_state.logged_in:
     tab_gsm_import = tabs[5]
     tab_cyber = tabs[6]
 else:
-    tabs = st.tabs(["📈 0. Dashboard Doanh Thu", "📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
+    tabs = st.tabs(["📈 0. Dashboard Bảng Kê Hóa Đơn", "📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
     tab_dash = tabs[0]
     tab_work = tabs[1]
 
-# TAB 0: DASHBOARD XUẤT HĐ THEO NGÀY
+# TAB 0: DASHBOARD LẤY DỮ LIỆU TỪ BẢNG KÊ HÓA ĐƠN
 with tab_dash:
-    st.subheader("📈 Phân Tích Giá Trị Xuất Hóa Đơn & Doanh Thu Theo Ngày")
-    st.caption("Xem thống kê giá trị xuất hóa đơn theo từng ngày trong tháng, trực quan và tức thì.")
+    st.subheader("📈 Phân Tích Báo Cáo Doanh Thu Từ Bảng Kê Hóa Đơn (Kế Toán)")
+    st.caption("Báo cáo phản ánh chính xác 100% từng hóa đơn độc lập, ngày ký phát hành và giá trị thực tế.")
 
-    df_hd_valid = df_master[
-        (df_master['Trạng thái'] != 'Đã hủy') & 
-        (df_master['Ngày xuất hóa đơn'].notna()) & 
-        (df_master['Ngày xuất hóa đơn'] != '')
-    ].copy()
+    # Cho phép nạp nhanh bảng kê hóa đơn ngay tại đây nếu chưa có
+    with st.expander("📂 Cập nhật hoặc Nạp mới Bảng Kê Hóa Đơn Kế Toán", expanded=(len(df_invoice_db) == 0)):
+        up_inv_dash = st.file_uploader("Tải file Bảng Kê Hóa Đơn (Excel/CSV)", type=['xlsx', 'xls', 'csv'], key='up_inv_dash')
+        if up_inv_dash:
+            df_raw_dash, col_labels_dash = doc_file_hoa_don_chuan(up_inv_dash)
+            st.write("🔎 Bản xem trước file vừa tải lên:")
+            st.dataframe(df_raw_dash.head(2), use_container_width=True)
 
-    # Tách các trường hợp ngày bị ghép chuỗi (ví dụ: "01/08/2026, 05/08/2026") để lấy ngày đầu tiên tính KPI
-    df_hd_valid['ngay_first'] = df_hd_valid['Ngày xuất hóa đơn'].astype(str).apply(lambda x: str(x).split(',')[0].strip())
-    df_hd_valid['dt_parsed'] = pd.to_datetime(df_hd_valid['ngay_first'], format='%d/%m/%Y', errors='coerce')
-    df_hd_valid = df_hd_valid[df_hd_valid['dt_parsed'].notna()]
+            def find_idx_dash(kw_list, default=0):
+                for i, label in enumerate(col_labels_dash):
+                    if any(k in label.lower() for k in kw_list):
+                        return i
+                return default
 
-    if len(df_hd_valid) > 0:
-        df_hd_valid['nam'] = df_hd_valid['dt_parsed'].dt.year
-        df_hd_valid['thang'] = df_hd_valid['dt_parsed'].dt.month
+            d_c1, d_c2, d_c3, d_c4 = st.columns(4)
+            d_lsc_idx = d_c1.selectbox("Cột Số LSC / RO:", list(range(len(col_labels_dash))), format_func=lambda i: col_labels_dash[i], index=find_idx_dash(['ro hãng', 'ro_hãng'], 0), key='d_lsc')
+            d_shd_idx = d_c2.selectbox("Cột Số Hóa Đơn:", list(range(len(col_labels_dash))), format_func=lambda i: col_labels_dash[i], index=find_idx_dash(['hóa đơn đt', 'số hóa đơn'], 1 if len(col_labels_dash)>1 else 0), key='d_shd')
+            d_nhd_idx = d_c3.selectbox("Cột Ngày HĐ:", list(range(len(col_labels_dash))), format_func=lambda i: col_labels_dash[i], index=find_idx_dash(['ngày', 'chứng từ'], 0), key='d_nhd')
+            d_gt_idx  = d_c4.selectbox("Cột Tiền Thanh Toán:", list(range(len(col_labels_dash))), format_func=lambda i: col_labels_dash[i], index=find_idx_dash(['tổng thanh toán', 'thành tiền', 'tiền'], 0), key='d_gt')
 
-        c_d1, c_d2 = st.columns([2, 4])
-        with c_d1:
-            list_nam = sorted(df_hd_valid['nam'].unique(), reverse=True)
-            sel_nam = st.selectbox("📅 Chọn Năm:", list_nam, index=0)
+            if st.button("🚀 NẠP VÀO HỆ THỐNG DASHBOARD", type="primary", use_container_width=True):
+                clean_rows = []
+                for _, r in df_raw_dash.iterrows():
+                    shd = str(r[d_shd_idx]).strip() if pd.notna(r[d_shd_idx]) else ""
+                    if shd.endswith('.0'): shd = shd[:-2]
+                    nhd = clean_ngay_chuan(r[d_nhd_idx]) if pd.notna(r[d_nhd_idx]) else ""
+                    raw_gt = str(r[d_gt_idx]).replace(',', '').replace(' ', '') if pd.notna(r[d_gt_idx]) else "0"
+                    try:
+                        gt = float(raw_gt)
+                    except ValueError:
+                        gt = 0.0
+                    lsc = clean_lsc_giu_gach(r[d_lsc_idx]) if pd.notna(r[d_lsc_idx]) else ""
+
+                    if shd or gt > 0 or lsc:
+                        clean_rows.append({
+                            'Số lệnh sửa chữa': lsc,
+                            'Số hóa đơn': shd,
+                            'Ngày xuất hóa đơn': nhd,
+                            'Giá trị xuất hóa đơn': gt
+                        })
+                df_new_inv = pd.DataFrame(clean_rows)
+                save_invoice_db(df_new_inv)
+                st.success(f"✅ ĐÃ NẠP THÀNH CÔNG {len(df_new_inv)} HÓA ĐƠN VÀO DASHBOARD!")
+                st.rerun()
+
+    # Xử lý báo cáo Dashboard từ df_invoice_db
+    if len(df_invoice_db) > 0:
+        df_dash_data = df_invoice_db.copy()
+        df_dash_data['dt_parsed'] = pd.to_datetime(df_dash_data['Ngày xuất hóa đơn'], format='%d/%m/%Y', errors='coerce')
+        df_dash_data = df_dash_data[df_dash_data['dt_parsed'].notna()]
+
+        if len(df_dash_data) > 0:
+            df_dash_data['nam'] = df_dash_data['dt_parsed'].dt.year
+            df_dash_data['thang'] = df_dash_data['dt_parsed'].dt.month
+
+            col_sel1, col_sel2 = st.columns([2, 4])
+            with col_sel1:
+                years_avail = sorted(df_dash_data['nam'].unique(), reverse=True)
+                sel_year = st.selectbox("📅 Chọn Năm:", years_avail, index=0, key='dash_yr')
+
+                months_avail = sorted(df_dash_data[df_dash_data['nam'] == sel_year]['thang'].unique())
+                def_m_idx = months_avail.index(8) if 8 in months_avail else (len(months_avail) - 1)
+                sel_month = st.selectbox("📆 Chọn Tháng Báo Cáo:", months_avail, index=def_m_idx, format_func=lambda m: f"Tháng {m:02d}", key='dash_mth')
+
+            df_month = df_dash_data[(df_dash_data['nam'] == sel_year) & (df_dash_data['thang'] == sel_month)].copy()
             
-            list_thang = sorted(df_hd_valid[df_hd_valid['nam'] == sel_nam]['thang'].unique())
-            default_thang_idx = list_thang.index(8) if 8 in list_thang else 0
-            sel_thang = st.selectbox("📆 Chọn Tháng:", list_thang, index=default_thang_idx, format_func=lambda m: f"Tháng {m}")
+            tong_tien_thang = df_month['Giá trị xuất hóa đơn'].sum()
+            tong_so_hd = len(df_month)
+            tb_hd = (tong_tien_thang / tong_so_hd) if tong_so_hd > 0 else 0
 
-        df_thang = df_hd_valid[(df_hd_valid['nam'] == sel_nam) & (df_hd_valid['thang'] == sel_thang)].copy()
-        
-        tong_tien_thang = df_thang['Giá trị xuất hóa đơn'].sum()
-        if tong_tien_thang == 0:
-            tong_tien_thang = df_thang['Số tiền thanh toán cuối'].sum()
+            st.markdown("---")
+            m1, m2, m3 = st.columns(3)
+            m1.metric(f"💰 Tổng Giá Trị HĐ Tháng {sel_month:02d}/{sel_year}", f"{tong_tien_thang:,.0f} đ")
+            m2.metric(f"🧾 Tổng Số Hóa Đơn Đã Xuất", f"{tong_so_hd:,} hóa đơn")
+            m3.metric(f"📊 Giá Trị Trung Bình / Hóa Đơn", f"{tb_hd:,.0f} đ")
 
-        so_hd_thang = len(df_thang)
-        tb_hd = (tong_tien_thang / so_hd_thang) if so_hd_thang > 0 else 0
+            # Gom nhóm chính xác theo từng ngày
+            df_month['ngay_num'] = df_month['dt_parsed'].dt.day
+            df_month['ngay_str'] = df_month['dt_parsed'].dt.strftime('%d/%m')
 
-        st.markdown("---")
-        m1, m2, m3 = st.columns(3)
-        m1.metric(f"💰 Tổng Tiền Xuất HĐ Tháng {sel_thang}/{sel_nam}", f"{tong_tien_thang:,.0f} đ")
-        m2.metric(f"🧾 Tổng Số Lượng LSC Đã Xuất HĐ", f"{so_hd_thang:,} lệnh")
-        m3.metric(f"📊 Giá Trị Trung Bình / Lệnh", f"{tb_hd:,.0f} đ")
+            df_daily = df_month.groupby(['ngay_num', 'ngay_str']).agg(
+                Tong_Tien=('Giá trị xuất hóa đơn', 'sum'),
+                So_Luong_HD=('Số hóa đơn', 'count')
+            ).reset_index().sort_values('ngay_num')
 
-        df_thang['ngay_str'] = df_thang['dt_parsed'].dt.strftime('%d/%m')
-        df_thang['ngay_num'] = df_thang['dt_parsed'].dt.day
+            st.markdown(f"#### 📊 Biểu Đồ Giá Trị Xuất Hóa Đơn Theo Từng Ngày (Tháng {sel_month:02d}/{sel_year})")
+            chart_view = df_daily.set_index('ngay_str')[['Tong_Tien']]
+            chart_view.columns = ['Giá trị HĐ (VNĐ)']
+            st.bar_chart(chart_view, height=360, use_container_width=True)
 
-        cot_tinh_tien = 'Giá trị xuất hóa đơn' if df_thang['Giá trị xuất hóa đơn'].sum() > 0 else 'Số tiền thanh toán cuối'
-        
-        df_daily = df_thang.groupby(['ngay_num', 'ngay_str']).agg(
-            Tong_Tien=(cot_tinh_tien, 'sum'),
-            So_Luong=('Số lệnh sửa chữa', 'count')
-        ).reset_index().sort_values('ngay_num')
-
-        st.markdown("#### 📊 Biểu Đồ Giá Trị Xuất Hóa Đơn Theo Từng Ngày")
-        chart_data = df_daily.set_index('ngay_str')[['Tong_Tien']]
-        chart_data.columns = ['Giá trị xuất HĐ (VNĐ)']
-        st.bar_chart(chart_data, height=350, use_container_width=True)
-
-        st.markdown("#### 📋 Chi Tiết Bảng Kê Doanh Số Từng Ngày")
-        df_daily_view = df_daily[['ngay_str', 'So_Luong', 'Tong_Tien']].copy()
-        df_daily_view.columns = ['Ngày', 'Số Lệnh Đã Xuất HĐ', 'Tổng Giá Trị Xuất HĐ (VNĐ)']
-        df_daily_view['Tổng Giá Trị Xuất HĐ (VNĐ)'] = df_daily_view['Tổng Giá Trị Xuất HĐ (VNĐ)'].apply(lambda x: f"{x:,.0f} đ")
-        st.dataframe(df_daily_view, use_container_width=True, hide_index=True)
+            st.markdown(f"#### 📋 Chi Tiết Bảng Kê Doanh Thu Từng Ngày (Tháng {sel_month:02d}/{sel_year})")
+            tbl_daily = df_daily[['ngay_str', 'So_Luong_HD', 'Tong_Tien']].copy()
+            tbl_daily.columns = ['Ngày', 'Số Lượng Hóa Đơn', 'Tổng Tiền Xuất HĐ (VNĐ)']
+            tbl_daily['Tổng Tiền Xuất HĐ (VNĐ)'] = tbl_daily['Tổng Tiền Xuất HĐ (VNĐ)'].apply(lambda x: f"{x:,.0f} đ")
+            st.dataframe(tbl_daily, use_container_width=True, hide_index=True)
+            
+            with st.expander("🔎 Xem danh sách chi tiết tất cả hóa đơn trong tháng này"):
+                st.dataframe(
+                    df_month[['Số lệnh sửa chữa', 'Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']].sort_values('dt_parsed', ascending=False),
+                    use_container_width=True,
+                    hide_index=True
+                )
+        else:
+            st.warning("⚠️ Không tìm thấy định dạng ngày hợp lệ trong Bảng Kê Hóa Đơn.")
     else:
-        st.info("ℹ️ Hiện tại chưa có dữ liệu 'Ngày xuất hóa đơn' trong hệ thống. Vui lòng vào Tab **3. Khớp File Hóa Đơn Kế Toán** để nạp dữ liệu.")
+        st.info("ℹ️ Hệ thống chưa có dữ liệu Bảng Kê Hóa Đơn. Vui lòng mở khung **'📂 Cập nhật hoặc Nạp mới Bảng Kê Hóa Đơn Kế Toán'** ở trên hoặc sang **Tab 3. Khớp File Hóa Đơn Kế Toán** để nạp file.")
 
 # TAB 1: BẢNG TÍNH WEB & KPI
 with tab_work:
@@ -771,7 +832,7 @@ if is_admin:
                 txt_dms.empty()
                 st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Thêm **{len(new_records)}** lệnh mới và cập nhật trạng thái cho **{status_updated_cnt}** lệnh.")
 
-    # TAB 3: KHỚP HÓA ĐƠN (GỘP NHIỀU HÓA ĐƠN TRÊN CÙNG 1 LSC)
+    # TAB 3: KHỚP HÓA ĐƠN VÀ TỰ ĐỘNG ĐỒNG BỘ CHO DASHBOARD
     with tab_inv:
         st.subheader("Khớp file Hóa Đơn kế toán với Hệ Thống")
         up_inv = st.file_uploader("Tải file Bảng Kê Hóa Đơn", type=['csv', 'xlsx'], key='up_inv_tab')
@@ -808,33 +869,38 @@ if is_admin:
                 exact_map = {clean_lsc_giu_gach(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 
-                # TẬP HỢP CÁC HÓA ĐƠN TRÙNG MÃ LSC VÀO TỪNG NHÓM
                 inv_aggregated = {}
+                raw_invoices_to_save = []
                 total_inv_rows = len(df_inv)
 
                 for r_idx in range(total_inv_rows):
                     raw_lsc = str(df_inv.iloc[r_idx, sel_lsc_idx])
                     key_exact = clean_lsc_giu_gach(raw_lsc)
-                    if not key_exact or len(key_exact) < 4:
-                        continue
 
-                    # Lấy số HĐ
                     shd_val = str(df_inv.iloc[r_idx, sel_shd_idx]).strip() if pd.notna(df_inv.iloc[r_idx, sel_shd_idx]) else ""
-                    if shd_val.endswith('.0'):
-                        shd_val = shd_val[:-2]
+                    if shd_val.endswith('.0'): shd_val = shd_val[:-2]
 
-                    # Lấy ngày HĐ
                     nhd_val = ""
                     if sel_nhd_idx != -1 and pd.notna(df_inv.iloc[r_idx, sel_nhd_idx]):
                         nhd_val = clean_ngay_chuan(df_inv.iloc[r_idx, sel_nhd_idx])
 
-                    # Lấy giá trị HĐ
                     gt_val = 0
                     if sel_gt_idx != -1 and pd.notna(df_inv.iloc[r_idx, sel_gt_idx]):
                         try:
                             gt_val = float(str(df_inv.iloc[r_idx, sel_gt_idx]).replace(',', '').replace(' ', ''))
                         except ValueError:
                             gt_val = 0
+
+                    if shd_val or gt_val > 0 or key_exact:
+                        raw_invoices_to_save.append({
+                            'Số lệnh sửa chữa': key_exact,
+                            'Số hóa đơn': shd_val,
+                            'Ngày xuất hóa đơn': nhd_val,
+                            'Giá trị xuất hóa đơn': gt_val
+                        })
+
+                    if not key_exact or len(key_exact) < 4:
+                        continue
 
                     if key_exact not in inv_aggregated:
                         inv_aggregated[key_exact] = {
@@ -849,6 +915,10 @@ if is_admin:
                             inv_aggregated[key_exact]['ngay_hd'].append(nhd_val)
                         inv_aggregated[key_exact]['tong_tien'] += gt_val
 
+                # Lưu đồng thời vào database riêng cho Dashboard
+                if raw_invoices_to_save:
+                    save_invoice_db(pd.DataFrame(raw_invoices_to_save))
+
                 matched_records = []
                 total_keys = len(inv_aggregated)
 
@@ -861,7 +931,6 @@ if is_admin:
                         if str(df_master.at[m_idx, 'Trạng thái']) == 'Đã hủy':
                             continue
 
-                        # Ghép nối các số HĐ nếu có nhiều hóa đơn (ví dụ: "HD01, HD02")
                         shd_str = ", ".join(val_dict['so_hd'])
                         nhd_str = ", ".join(val_dict['ngay_hd'])
                         gt_tong = val_dict['tong_tien']
@@ -885,7 +954,7 @@ if is_admin:
                 save_master(df_master)
                 p_bar_inv.progress(100)
                 txt_inv.empty()
-                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa (bao gồm cả các lệnh phát sinh nhiều hóa đơn).")
+                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa (bao gồm cả các lệnh phát sinh nhiều hóa đơn) và tự động đồng bộ sang Dashboard!")
 
     # TAB 4: IMPORT PHÊ DUYỆT BẢO HÀNH (EXCEL)
     with tab_bh_import:
