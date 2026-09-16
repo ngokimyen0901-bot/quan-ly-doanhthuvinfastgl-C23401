@@ -232,6 +232,20 @@ def chuan_hoa_kieu_du_lieu(df_input):
             df_out[col] = pd.to_numeric(df_out[col], errors='coerce').fillna(0)
     return df_out
 
+# HÀM XỬ LÝ LỌC TRÙNG LỆNH CHUYÊN SÂU
+def xu_ly_loc_trung_lsc(df_target):
+    if df_target is None or len(df_target) == 0:
+        return df_target
+    df_res = df_target.copy()
+    df_res['temp_norm_key'] = df_res['Số lệnh sửa chữa'].apply(norm_lsc_key)
+    
+    # Ưu tiên giữ lại dòng có Số hóa đơn hoặc có tiền thanh toán lớn hơn
+    df_res['has_hd'] = df_res['Số hóa đơn'].fillna('').astype(str).str.strip().apply(lambda x: 1 if x and x not in ['0', 'nan', 'None'] else 0)
+    df_res = df_res.sort_values(by=['has_hd', 'Giá trị xuất hóa đơn', 'Số tiền thanh toán cuối'], ascending=[True, True, True])
+    df_res = df_res.drop_duplicates(subset=['temp_norm_key'], keep='last')
+    df_res = df_res.drop(columns=['temp_norm_key', 'has_hd'])
+    return df_res
+
 @st.cache_data(show_spinner=False)
 def load_cached_master():
     if not os.path.exists(MASTER_FILE):
@@ -258,11 +272,15 @@ def load_cached_master():
 
     df_m = dong_bo_hoa_don(df_m)
     df_m = chuan_hoa_kieu_du_lieu(df_m)
+    # Tự động lọc trùng LSC khi tải dữ liệu
+    df_m = xu_ly_loc_trung_lsc(df_m)
     return df_m[TAT_CA_COT]
 
 def save_master(df_to_save):
     df_clean = dong_bo_hoa_don(df_to_save.copy())
     df_clean = chuan_hoa_kieu_du_lieu(df_clean)
+    # Tự động lọc trùng LSC trước khi ghi file
+    df_clean = xu_ly_loc_trung_lsc(df_clean)
     df_clean.to_excel(MASTER_FILE, index=False)
     load_cached_master.clear()
 
@@ -538,7 +556,7 @@ else:
     tabs = st.tabs(["📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
     tab_work = tabs[0]
 
-# TAB 1: BẢNG TÍNH WEB VỚI CHỮ TO 17PX & MỞ KHÓA SORT TẤT CẢ CỘT
+# TAB 1: BẢNG TÍNH WEB VỚI CHỮ TO 17PX & LỌC TRÙNG LSC TỰ ĐỘNG
 with tab_work:
     df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
@@ -631,6 +649,9 @@ with tab_work:
     else:
         df_show = df_master.copy()
         sheet_file_name = "Tong_Hop_Toan_Bo"
+
+    # LỌC TRÙNG LỆNH NGAY TRÊN BẢNG HIỂN THỊ
+    df_show = xu_ly_loc_trung_lsc(df_show)
 
     # 2. KHUNG LỌC TRỰC TIẾP RIÊNG TỪNG TIÊU ĐỀ CỘT
     st.markdown("##### 📌 Lọc Chi Tiết Theo Tiêu Đề Cột:")
@@ -733,7 +754,6 @@ with tab_work:
 
     is_admin = st.session_state.logged_in
 
-    # ĐÃ GỠ BỎ TOÀN BỘ pinned=True ĐỂ TẤT CẢ CÁC CỘT ĐỀU SORT ĐƯỢC THOẢI MÁI TRÊN ĐẦU CỘT
     col_cfg = {
         "STT": st.column_config.NumberColumn("STT", disabled=True, width="small"),
         "Số lệnh sửa chữa": st.column_config.TextColumn("Số LSC", disabled=True),
@@ -783,11 +803,11 @@ with tab_work:
         disabled=(not is_admin),
         num_rows="fixed",
         hide_index=True,
-        key=f"data_editor_table_v5_{luong_data}"
+        key=f"data_editor_table_v6_{luong_data}"
     )
 
     st.markdown("---")
-    c_btn1, c_btn1_undo, c_btn2, c_btn3 = st.columns([3, 2, 2.5, 3.5])
+    c_btn1, c_btn1_undo, c_btn_clean, c_btn2, c_btn3 = st.columns([2.5, 1.8, 2.5, 2.2, 3.0])
 
     with c_btn1:
         if is_admin:
@@ -809,14 +829,24 @@ with tab_work:
 
     with c_btn1_undo:
         if is_admin:
-            if st.button("↩️ Hủy Thay Đổi (Reset)", use_container_width=True):
+            if st.button("↩️ Hủy Thay Đổi", use_container_width=True):
+                st.rerun()
+
+    with c_btn_clean:
+        if is_admin:
+            if st.button("🧹 Quét & Xóa Lệnh Trùng", use_container_width=True):
+                truoc_do = len(df_master)
+                df_master = xu_ly_loc_trung_lsc(df_master)
+                save_master(df_master)
+                da_xoa = truoc_do - len(df_master)
+                st.success(f"✅ Đã dọn dẹp xong! Loại bỏ thành công {da_xoa} dòng trùng lặp.")
                 st.rerun()
 
     with c_btn2:
         df_export_single = df_show.drop(columns=['STT']) if 'STT' in df_show.columns else df_show
         excel_single_bytes = xuat_excel_don_luong(df_export_single, luong_data, cols_to_hide=cols_to_hide_in_excel)
         st.download_button(
-            label=f"⬇️ Tải Riêng Luồng Này (.xlsx)",
+            label=f"⬇️ Tải Riêng Luồng Này",
             data=excel_single_bytes,
             file_name=f"Bao_Cao_{sheet_file_name}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -824,8 +854,8 @@ with tab_work:
         )
 
     with c_btn3:
-        with st.expander("📦 Xuất File Excel Tổng Hợp (Đầy Đủ 8 Sheet)", expanded=False):
-            if st.button("🚀 Khởi tạo toàn bộ 8 Sheet Excel", use_container_width=True):
+        with st.expander("📦 Xuất File Excel Tổng Hợp", expanded=False):
+            if st.button("🚀 Khởi tạo toàn bộ 8 Sheet", use_container_width=True):
                 p_bar_excel = st.progress(0)
                 st_txt_excel = st.empty()
                 excel_bytes = xuat_excel_da_sheet_with_progress(df_master, p_bar_excel, st_txt_excel)
@@ -863,24 +893,29 @@ if is_admin:
                 df_inc.loc[(df_inc['BH hãng thanh toán'] > 0) & (df_inc['Phê duyệt bảo hành'].isna()), 'Phê duyệt bảo hành'] = "Chờ duyệt"
                 df_inc = dong_bo_hoa_don(df_inc)
                 df_inc = chuan_hoa_kieu_du_lieu(df_inc)
+                
+                # LỌC TRÙNG NỘI BỘ TRONG CHÍNH FILE NẠP
+                df_inc = xu_ly_loc_trung_lsc(df_inc)
 
                 p_bar_dms = st.progress(0)
                 txt_dms = st.empty()
                 txt_dms.write("⏳ Đang đối soát và cập nhật dữ liệu... (10%)")
 
-                master_idx_map = {lsc: idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
+                master_norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 new_records = []
                 status_updated_cnt = 0
                 total_inc = len(df_inc)
 
                 for i, (_, row) in enumerate(df_inc.iterrows()):
                     lsc = row['Số lệnh sửa chữa']
-                    if not lsc or lsc in ['nan', 'None', '']:
+                    k_norm = norm_lsc_key(lsc)
+                    if not k_norm:
                         continue
-                    if lsc not in master_idx_map:
+                    if k_norm not in master_norm_map:
                         new_records.append(row)
+                        master_norm_map[k_norm] = len(df_master) + len(new_records) - 1
                     else:
-                        m_idx = master_idx_map[lsc]
+                        m_idx = master_norm_map[k_norm]
                         old_status = str(df_master.at[m_idx, 'Trạng thái'])
                         new_status = str(row['Trạng thái'])
                         if old_status != new_status:
@@ -901,7 +936,7 @@ if is_admin:
                 txt_dms.empty()
                 st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Thêm **{len(new_records)}** lệnh mới và cập nhật trạng thái cho **{status_updated_cnt}** lệnh.")
 
-    # TAB 3: KHỚP HÓA ĐƠN (CHUẨN HÓA VÀ GỘP MỌI HÓA ĐƠN CÙNG LỆNH)
+    # TAB 3: KHỚP HÓA ĐƠN
     with tab_inv:
         st.subheader("Khớp file Hóa Đơn kế toán với Hệ Thống")
         st.caption("Tự động gộp tất cả hóa đơn cùng 1 LSC: nối số HĐ bằng dấu phẩy và cộng dồn tiền chính xác 100%.")
@@ -938,7 +973,6 @@ if is_admin:
 
                 norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 
-                # GOM NHÓM THEO NORM KEY
                 inv_aggregated = {}
                 total_inv_rows = len(df_inv)
 
