@@ -25,6 +25,7 @@ COT_DINH_DANH = [
     'Thời gian đóng LSC', 'Biển số', 'Xe GSM'
 ]
 
+# Đầy đủ tất cả các cột chi tiết tiền từ DMS gốc (ảnh 1)
 COT_TIEN = [
     'Tổng tiền công', 'Tổng tiền phụ tùng', 'Tổng trước chiết khấu',
     'Chiết khấu đại lý', 'Tổng chiết khấu', 'Tổng sau chiết khấu',
@@ -701,19 +702,25 @@ with tab_work:
     with f_col3:
         tim_kiem_nhanh = st.text_input("🔍 Tìm kiếm (Biển số / LSC / Tên):", "")
 
-    # DANH SÁCH TẤT CẢ CÁC CỘT ĐỂ NGƯỜI DÙNG TÙY BIẾN
+    # ĐẦY ĐỦ TẤT CẢ CÁC CỘT (THEO ĐÚNG THỨ TỰ ẢNH 1 ĐẦY ĐỦ CỦA BẠN)
     tat_ca_cot_bang = [
         'Số lệnh sửa chữa', 'Trạng thái', 'Cố vấn dịch vụ', 'Tên khách hàng', 
         'Thời gian đóng LSC', 'Biển số', 'Xe GSM', 'Phân loại KH', 'Phê duyệt bảo hành',
-        'Tổng tiền công', 'Tổng tiền phụ tùng', 'Số tiền thanh toán cuối', 'KH thanh toán', 
-        'BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán', 
+        'Tổng tiền công', 'Tổng tiền phụ tùng', 'Tổng trước chiết khấu',
+        'Chiết khấu đại lý', 'Tổng chiết khấu', 'Tổng sau chiết khấu',
+        'Tiền VAT', 'Tổng có VAT', 'Chiết khấu VinClub',
+        'Số tiền thanh toán cuối', 'Tiền đặt cọc',
+        'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán',
         'Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn'
     ]
 
     cols_base = ['Số lệnh sửa chữa', 'Trạng thái', 'Cố vấn dịch vụ', 'Tên khách hàng', 'Thời gian đóng LSC', 'Biển số']
     cols_hd = ['Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']
     
-    # Cấu hình danh sách cột hiển thị mặc định theo từng luồng
+    # 4 CỘT THANH TOÁN CUỐI CÙNG (NHƯ ẢNH 2)
+    cols_4_thanh_toan = ['KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán']
+
+    # CẤU HÌNH MẶC ĐỊNH: TỰ ĐỘNG HIDE HẾT CÁC CỘT Ở GIỮA, CHỈ GIỮ LẠI CÁC CỘT THANH TOÁN CUỐI (ẢNH 2)
     if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
         df_show = df_kh_total.copy()
         default_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
@@ -744,21 +751,23 @@ with tab_work:
         sheet_file_name = "Canh_Bao_Chua_Xuat_HD"
     elif luong_data == "6. Xem Lệnh Chưa Hoàn Thành (Báo giá & Đang sửa chữa)":
         df_show = df_chuahoanthanh.copy()
-        default_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán']
+        default_cols = cols_base + ['Số tiền thanh toán cuối'] + cols_4_thanh_toan
         sheet_file_name = "6_Lenh_Chua_Xong"
     elif luong_data == "7. Xem Lệnh Đã Hủy":
         df_show = df_master[df_master['Trạng thái'] == 'Đã hủy'].copy()
         default_cols = cols_base + ['Số tiền thanh toán cuối']
         sheet_file_name = "7_Lenh_Da_Huy"
     else:
+        # Sheet Tổng Hợp: Mặc định cũng chỉ hiện các cột thanh toán cuối cùng (như ảnh 2) để không bị rối mắt
         df_show = df_master.copy()
-        default_cols = tat_ca_cot_bang
+        default_cols = cols_base + ['Phân loại KH', 'Phê duyệt bảo hành', 'Số tiền thanh toán cuối'] + cols_4_thanh_toan + cols_hd
         sheet_file_name = "Tong_Hop_Toan_Bo"
 
-    # KHUNG BỘ LỌC TÙY CHỌN HIDE / UNHIDE CỘT
+    # KHUNG TÙY CHỌN UNHIDE: KHI CẦN XEM LỆNH CHI TIẾT THÌ MỚI BẤM TICK CHỌN
     with st.expander("👁️ Tùy biến Cột hiển thị (Bấm để Tick chọn Unhide hoặc bỏ chọn để Hide cột)", expanded=False):
+        st.caption("Mặc định các cột chi tiết đã được ẨN (Hide) để bảng gọn gàng. Bạn có thể tick thêm bất cứ cột nào bên dưới để MỞ (Unhide) xem lệnh chi tiết:")
         selected_cols = st.multiselect(
-            "Chọn các cột bạn muốn hiển thị trên bảng tính:",
+            "Chọn các cột bạn muốn xem trên bảng:",
             options=tat_ca_cot_bang,
             default=[c for c in default_cols if c in tat_ca_cot_bang],
             key=f"col_filter_{luong_data}"
@@ -781,16 +790,16 @@ with tab_work:
     df_show = df_show.reset_index(drop=True)
     df_show.insert(0, 'STT', range(1, len(df_show) + 1))
 
-    # Ghép cột STT cố định lên đầu kèm danh sách cột người dùng đã chọn
-    actual_cols = ['STT'] + [c for c in selected_cols if c in df_show.columns]
+    # Giữ đúng thứ tự xuất hiện của các cột theo danh sách đầy đủ
+    actual_cols = ['STT'] + [c for c in tat_ca_cot_bang if c in selected_cols and c in df_show.columns]
     df_render = df_show[actual_cols].copy()
 
-    # Danh sách các cột bị bỏ chọn sẽ được ẩn sẵn trong Excel
+    # Toàn bộ các cột không được tick chọn sẽ được đặt chế độ Ẩn (Hide) trong Excel
     cols_to_hide_in_excel = [c for c in tat_ca_cot_bang if c not in selected_cols]
 
     is_admin = st.session_state.logged_in
 
-    # Cấu hình NumberColumn với dấu phẩy ngăn cách hàng nghìn (%,d đ)
+    # Định dạng dấu phẩy ngăn cách hàng nghìn cho tất cả các cột tiền
     col_cfg = {
         "STT": st.column_config.NumberColumn("STT", disabled=True, pinned=True, width="small"),
         "Số lệnh sửa chữa": st.column_config.TextColumn("Số LSC", disabled=True, pinned=True),
@@ -809,11 +818,19 @@ with tab_work:
         ),
         "Tổng tiền công": st.column_config.NumberColumn("Tổng tiền công", format="%,d đ", disabled=True),
         "Tổng tiền phụ tùng": st.column_config.NumberColumn("Tổng phụ tùng", format="%,d đ", disabled=True),
+        "Tổng trước chiết khấu": st.column_config.NumberColumn("Trước CK", format="%,d đ", disabled=True),
+        "Chiết khấu đại lý": st.column_config.NumberColumn("CK đại lý", format="%,d đ", disabled=True),
+        "Tổng chiết khấu": st.column_config.NumberColumn("Tổng CK", format="%,d đ", disabled=True),
+        "Tổng sau chiết khấu": st.column_config.NumberColumn("Sau CK", format="%,d đ", disabled=True),
+        "Tiền VAT": st.column_config.NumberColumn("Tiền VAT", format="%,d đ", disabled=True),
+        "Tổng có VAT": st.column_config.NumberColumn("Tổng có VAT", format="%,d đ", disabled=True),
+        "Chiết khấu VinClub": st.column_config.NumberColumn("CK VinClub", format="%,d đ", disabled=True),
         "Số tiền thanh toán cuối": st.column_config.NumberColumn("Tổng TT cuối", format="%,d đ", disabled=True),
+        "Tiền đặt cọc": st.column_config.NumberColumn("Tiền đặt cọc", format="%,d đ", disabled=True),
         "KH thanh toán": st.column_config.NumberColumn("KH thanh toán", format="%,d đ", disabled=True),
-        "BH hãng thanh toán": st.column_config.NumberColumn("BH hãng (W)", format="%,d đ", disabled=True),
-        "BH thanh toán": st.column_config.NumberColumn("Bảo hiểm", format="%,d đ", disabled=True),
-        "Nội bộ thanh toán": st.column_config.NumberColumn("Nội bộ", format="%,d đ", disabled=True),
+        "BH thanh toán": st.column_config.NumberColumn("BH thanh toán", format="%,d đ", disabled=True),
+        "BH hãng thanh toán": st.column_config.NumberColumn("BH hãng thanh toán", format="%,d đ", disabled=True),
+        "Nội bộ thanh toán": st.column_config.NumberColumn("Nội bộ thanh toán", format="%,d đ", disabled=True),
         "Số hóa đơn": st.column_config.TextColumn("Số HĐ", disabled=not is_admin),
         "Ngày xuất hóa đơn": st.column_config.TextColumn("Ngày HĐ", disabled=not is_admin),
         "Giá trị xuất hóa đơn": st.column_config.NumberColumn("Tiền HĐ", format="%,d đ", disabled=not is_admin),
@@ -855,7 +872,7 @@ with tab_work:
                 st.success("✅ Dữ liệu đã lưu thành công vào Hệ Thống.")
 
     with c_btn2:
-        # NÚT TẢI RIÊNG LUỒNG NÀY (Định dạng chuẩn, cột không chọn được ẩn sẵn trong Excel)
+        # NÚT TẢI RIÊNG LUỒNG NÀY (Đầy đủ tất cả các cột, nhưng cột không chọn được ẩn sẵn trong Excel, có thể Unhide bất kỳ lúc nào)
         df_export_single = df_show.drop(columns=['STT']) if 'STT' in df_show.columns else df_show
         excel_single_bytes = xuat_excel_don_luong(df_export_single, luong_data, cols_to_hide=cols_to_hide_in_excel)
         st.download_button(
