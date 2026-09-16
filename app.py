@@ -46,7 +46,7 @@ TEXT_COLUMNS = [
 
 TRANG_THAI_HOAN_THANH = ['Đã đóng', 'Sẵn sàng bàn giao']
 
-# --- TIỆN ÍCH XÁC THỰC GHI NHỚ ĐĂNG NHẬP 10 NGÀY ---
+# --- AUTH TOKEN ---
 def tao_auth_token(username, so_ngay=10):
     exp_time = int(time.time()) + (so_ngay * 86400)
     data = f"{username}|{exp_time}"
@@ -67,7 +67,7 @@ def xac_thuc_auth_token(token):
         return None
     return None
 
-# --- CÁC HÀM XỬ LÝ CHUẨN HÓA DỮ LIỆU ---
+# --- CHUẨN HÓA DỮ LIỆU ---
 def clean_lsc_giu_gach(val):
     if pd.isna(val) or val is None:
         return ""
@@ -294,7 +294,7 @@ def tao_file_mau_gsm():
     out.seek(0)
     return out
 
-def format_sheet_in_workbook(ws, sheet_name):
+def format_sheet_in_workbook(ws, sheet_name, cols_to_hide=None):
     font_header = Font(name='Segoe UI', size=11, bold=True, color='FFFFFF')
     fill_header = PatternFill(start_color='1F4E78', fill_type='solid')
     fill_even = PatternFill(start_color='F4F7FA', fill_type='solid')
@@ -385,9 +385,28 @@ def format_sheet_in_workbook(ws, sheet_name):
     ws.freeze_panes = 'G2'
 
     for col in ws.columns:
-        max_l = max(len(str(c.value or '')) for c in col[:25])
+        col_header = ws.cell(row=1, column=col[0].column).value
         col_let = get_column_letter(col[0].column)
-        ws.column_dimensions[col_let].width = max(max_l + 6, 15)
+        
+        # Ẩn cột nếu thuộc danh sách ẩn (có thể Unhide trong Excel)
+        if cols_to_hide and col_header in cols_to_hide:
+            ws.column_dimensions[col_let].hidden = True
+        else:
+            max_l = max(len(str(c.value or '')) for c in col[:25])
+            ws.column_dimensions[col_let].width = max(max_l + 6, 15)
+
+def xuat_excel_don_luong(df_source, ten_sheet, cols_to_hide=None):
+    buffer = io.BytesIO()
+    df_clean = dong_bo_hoa_don(df_source.copy())
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_clean.to_excel(writer, index=False, sheet_name=ten_sheet[:31])
+    buffer.seek(0)
+    wb = openpyxl.load_workbook(buffer)
+    format_sheet_in_workbook(wb.active, ten_sheet, cols_to_hide=cols_to_hide)
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return out
 
 def xuat_excel_da_sheet_with_progress(df_full, p_bar=None, status_txt=None):
     buffer = io.BytesIO()
@@ -441,13 +460,12 @@ def xuat_excel_da_sheet_with_progress(df_full, p_bar=None, status_txt=None):
     if status_txt: status_txt.write("✅ ĐÃ CHẠY XONG CHU TRÌNH TẠO BÁO CÁO! (100%)")
     return out
 
-# --- PHÂN QUYỀN ĐĂNG NHẬP & TỰ ĐỘNG GHI NHỚ 10 NGÀY ---
+# --- PHÂN QUYỀN ĐĂNG NHẬP & GHI NHỚ 10 NGÀY ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
     st.session_state.username = ""
 
-# Kiểm tra nếu trên URL có token ghi nhớ hợp lệ
 token_url = st.query_params.get("auth_token")
 if token_url and not st.session_state.logged_in:
     valid_user = xac_thuc_auth_token(token_url)
@@ -488,7 +506,6 @@ with st.sidebar:
 # --- GIAO DIỆN CHÍNH ---
 st.title("🚗 Quản Trị Dịch Vụ, Hóa Đơn & Đối Soát Cyber")
 
-# Đọc dữ liệu Master và Dữ liệu Hóa đơn
 df_master = load_cached_master()
 df_invoice_db = load_cached_invoices()
 
@@ -514,7 +531,7 @@ else:
     tab_dash = tabs[0]
     tab_work = tabs[1]
 
-# TAB 0: DASHBOARD LẤY DỮ LIỆU TỪ BẢNG KÊ HÓA ĐƠN
+# TAB 0: DASHBOARD
 with tab_dash:
     st.subheader("📈 Phân Tích Báo Cáo Doanh Thu Từ Bảng Kê Hóa Đơn (Kế Toán)")
     st.caption("Báo cáo phản ánh chính xác 100% từng hóa đơn độc lập, ngày ký phát hành và giá trị thực tế.")
@@ -613,7 +630,6 @@ with tab_dash:
             st.dataframe(tbl_daily, use_container_width=True, hide_index=True)
             
             with st.expander("🔎 Xem danh sách chi tiết tất cả hóa đơn trong tháng này"):
-                # Đã sửa thứ tự: Sắp xếp theo ngày trước rồi mới chọn 4 cột hiển thị
                 st.dataframe(
                     df_month.sort_values('dt_parsed', ascending=False)[['Số lệnh sửa chữa', 'Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']],
                     use_container_width=True,
@@ -622,9 +638,9 @@ with tab_dash:
         else:
             st.warning("⚠️ Không tìm thấy định dạng ngày hợp lệ trong Bảng Kê Hóa Đơn.")
     else:
-        st.info("ℹ️ Hệ thống chưa có dữ liệu Bảng Kê Hóa Đơn. Vui lòng mở khung **'📂 Cập nhật hoặc Nạp mới Bảng Kê Hóa Đơn Kế Toán'** ở trên hoặc sang **Tab 3. Khớp File Hóa Đơn Kế Toán** để nạp file.")
+        st.info("ℹ️ Hệ thống chưa có dữ liệu Bảng Kê Hóa Đơn. Vui lòng nạp ở trên hoặc tại Tab 3.")
 
-# TAB 1: BẢNG TÍNH WEB & KPI
+# TAB 1: BẢNG TÍNH WEB & PHÂN LUỒNG TỐI ƯU CỘT
 with tab_work:
     df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
@@ -670,12 +686,12 @@ with tab_work:
     f_col1, f_col2, f_col3 = st.columns([2, 2, 2])
     with f_col1:
         luong_data = st.selectbox("📂 Chọn luồng dữ liệu xem & quản trị:", [
-            "🚨 Lệnh Đã Xong Chưa Xuất HĐ (Chỉ KH & Bảo Hiểm)",
             "1. KH Thanh Toán (Đã hoàn thành lệnh)",
             "2. GSM Công Nợ (Chỉ các lệnh thuộc file công nợ)",
             "3. Bảo Hành Hãng (W) - Phê duyệt",
             "4. Bảo Hiểm (Insurance)",
             "5. Nội bộ thanh toán",
+            "🚨 Lệnh Đã Xong Chưa Xuất HĐ (Chỉ KH & Bảo Hiểm)",
             "6. Xem Lệnh Chưa Hoàn Thành (Báo giá & Đang sửa chữa)",
             "7. Xem Lệnh Đã Hủy",
             "Toàn bộ dữ liệu (Sheet Tổng Hợp)"
@@ -685,28 +701,59 @@ with tab_work:
     with f_col3:
         tim_kiem_nhanh = st.text_input("🔍 Tìm kiếm (Biển số / LSC / Tên):", "")
 
-    if luong_data == "🚨 Lệnh Đã Xong Chưa Xuất HĐ (Chỉ KH & Bảo Hiểm)":
+    # Xác định các cột cần hiển thị và ẩn theo từng luồng
+    cols_base = ['STT', 'Số lệnh sửa chữa', 'Trạng thái', 'Cố vấn dịch vụ', 'Tên khách hàng', 'Thời gian đóng LSC', 'Biển số']
+    cols_hd = ['Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']
+    
+    if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
+        df_show = df_kh_total.copy()
+        visible_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
+        cols_to_hide_in_excel = ['BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán', 'Phê duyệt bảo hành', 'Xe GSM']
+        sheet_file_name = "1_KH_Thanh_Toan"
+    elif luong_data == "2. GSM Công Nợ (Chỉ các lệnh thuộc file công nợ)":
+        df_show = df_gsm_debt.copy()
+        visible_cols = cols_base + ['Phân loại KH', 'Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
+        cols_to_hide_in_excel = ['BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán', 'Phê duyệt bảo hành']
+        sheet_file_name = "2_GSM_Cong_No"
+    elif luong_data == "3. Bảo Hành Hãng (W) - Phê duyệt":
+        df_show = df_bh_hang.copy()
+        visible_cols = cols_base + ['BH hãng thanh toán', 'Phê duyệt bảo hành'] + cols_hd
+        cols_to_hide_in_excel = ['KH thanh toán', 'BH thanh toán', 'Nội bộ thanh toán', 'Phân loại KH', 'Xe GSM']
+        sheet_file_name = "3_Bao_Hanh_Hang"
+    elif luong_data == "4. Bảo Hiểm (Insurance)":
+        df_show = df_bh.copy()
+        visible_cols = cols_base + ['Số tiền thanh toán cuối', 'BH thanh toán'] + cols_hd
+        cols_to_hide_in_excel = ['KH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán', 'Phê duyệt bảo hành', 'Phân loại KH']
+        sheet_file_name = "4_Bao_Hiem"
+    elif luong_data == "5. Nội bộ thanh toán":
+        df_show = df_hoanthanh[df_hoanthanh['Nội bộ thanh toán'] > 0].copy()
+        visible_cols = cols_base + ['Số tiền thanh toán cuối', 'Nội bộ thanh toán'] + cols_hd
+        cols_to_hide_in_excel = ['KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán', 'Phê duyệt bảo hành']
+        sheet_file_name = "5_Noi_Bo"
+    elif luong_data == "🚨 Lệnh Đã Xong Chưa Xuất HĐ (Chỉ KH & Bảo Hiểm)":
         mask_target = (df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (
             ((df_master['KH thanh toán'] > 0) & (df_master['Phân loại KH'] != 'GSM Công nợ')) |
             (df_master['BH thanh toán'] > 0)
         ) & (df_master['Số hóa đơn'].isna() | df_master['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))
         df_show = df_master[mask_target].copy()
-    elif luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
-        df_show = df_kh_total.copy()
-    elif luong_data == "2. GSM Công Nợ (Chỉ các lệnh thuộc file công nợ)":
-        df_show = df_gsm_debt.copy()
-    elif luong_data == "3. Bảo Hành Hãng (W) - Phê duyệt":
-        df_show = df_bh_hang.copy()
-    elif luong_data == "4. Bảo Hiểm (Insurance)":
-        df_show = df_bh.copy()
-    elif luong_data == "5. Nội bộ thanh toán":
-        df_show = df_hoanthanh[df_hoanthanh['Nội bộ thanh toán'] > 0].copy()
+        visible_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán'] + cols_hd
+        cols_to_hide_in_excel = ['BH hãng thanh toán', 'Nội bộ thanh toán', 'Phê duyệt bảo hành']
+        sheet_file_name = "Canh_Bao_Chua_Xuat_HD"
     elif luong_data == "6. Xem Lệnh Chưa Hoàn Thành (Báo giá & Đang sửa chữa)":
         df_show = df_chuahoanthanh.copy()
+        visible_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán']
+        cols_to_hide_in_excel = []
+        sheet_file_name = "6_Lenh_Chua_Xong"
     elif luong_data == "7. Xem Lệnh Đã Hủy":
         df_show = df_master[df_master['Trạng thái'] == 'Đã hủy'].copy()
+        visible_cols = cols_base + ['Số tiền thanh toán cuối']
+        cols_to_hide_in_excel = []
+        sheet_file_name = "7_Lenh_Da_Huy"
     else:
         df_show = df_master.copy()
+        visible_cols = TAT_CA_COT
+        cols_to_hide_in_excel = []
+        sheet_file_name = "Tong_Hop_Toan_Bo"
 
     if loc_canh_bao_hd == "Chỉ hiển thị xe CHƯA có hóa đơn":
         df_show = df_show[(df_show['Số hóa đơn'].isna()) | (df_show['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))]
@@ -722,12 +769,16 @@ with tab_work:
         df_show = df_show[mask]
 
     df_show = chuan_hoa_kieu_du_lieu(df_show)
-
     df_show = df_show.reset_index(drop=True)
     df_show.insert(0, 'STT', range(1, len(df_show) + 1))
 
+    # Lọc các cột hiển thị trên bảng web
+    actual_cols = [c for c in visible_cols if c in df_show.columns]
+    df_render = df_show[actual_cols].copy()
+
     is_admin = st.session_state.logged_in
 
+    # Cấu hình NumberColumn với dấu phẩy ngăn cách hàng nghìn
     col_cfg = {
         "STT": st.column_config.NumberColumn("STT", disabled=True, pinned=True, width="small"),
         "Số lệnh sửa chữa": st.column_config.TextColumn("Số LSC", disabled=True, pinned=True),
@@ -744,21 +795,21 @@ with tab_work:
             disabled=not is_admin,
             required=False
         ),
-        "Số tiền thanh toán cuối": st.column_config.NumberColumn("Tổng TT cuối", format="%d đ", disabled=True),
-        "KH thanh toán": st.column_config.NumberColumn("KH thanh toán", format="%d đ", disabled=True),
-        "BH hãng thanh toán": st.column_config.NumberColumn("BH hãng (W)", format="%d đ", disabled=True),
-        "BH thanh toán": st.column_config.NumberColumn("Bảo hiểm", format="%d đ", disabled=True),
-        "Nội bộ thanh toán": st.column_config.NumberColumn("Nội bộ", format="%d đ", disabled=True),
+        "Số tiền thanh toán cuối": st.column_config.NumberColumn("Tổng TT cuối", format="%,d đ", disabled=True),
+        "KH thanh toán": st.column_config.NumberColumn("KH thanh toán", format="%,d đ", disabled=True),
+        "BH hãng thanh toán": st.column_config.NumberColumn("BH hãng (W)", format="%,d đ", disabled=True),
+        "BH thanh toán": st.column_config.NumberColumn("Bảo hiểm", format="%,d đ", disabled=True),
+        "Nội bộ thanh toán": st.column_config.NumberColumn("Nội bộ", format="%,d đ", disabled=True),
         "Số hóa đơn": st.column_config.TextColumn("Số HĐ", disabled=not is_admin),
         "Ngày xuất hóa đơn": st.column_config.TextColumn("Ngày HĐ", disabled=not is_admin),
-        "Giá trị xuất hóa đơn": st.column_config.NumberColumn("Tiền HĐ", format="%d đ", disabled=not is_admin),
+        "Giá trị xuất hóa đơn": st.column_config.NumberColumn("Tiền HĐ", format="%,d đ", disabled=not is_admin),
     }
 
     if not is_admin:
         st.info("ℹ️ Bạn đang ở chế độ **Chỉ Xem (Read-only)**. Để chỉnh sửa dữ liệu hoặc nạp file, vui lòng đăng nhập quyền Quản trị ở thanh bên trái.")
 
     edited_df = st.data_editor(
-        df_show,
+        df_render,
         use_container_width=True,
         height=530,
         column_config=col_cfg,
@@ -768,14 +819,14 @@ with tab_work:
         key="data_editor_table"
     )
 
-    btn_save, btn_down = st.columns([2, 3])
-    with btn_save:
+    # 3 NÚT BẤM RIÊNG BIỆT RÕ RÀNG
+    st.markdown("---")
+    c_btn1, c_btn2, c_btn3 = st.columns([3, 3, 4])
+
+    with c_btn1:
         if is_admin:
-            if st.button("💾 Lưu Mọi Chỉnh Sửa Trực Tiếp Vào Hệ Thống", type="primary", use_container_width=True):
+            if st.button("💾 Lưu Mọi Chỉnh Sửa Trực Tiếp", type="primary", use_container_width=True):
                 prog = st.progress(0)
-                st_txt = st.empty()
-                st_txt.write("⏳ Đang đồng bộ và lưu dữ liệu...")
-                
                 edit_dict = edited_df.set_index('Số lệnh sửa chữa').to_dict('index')
                 total_rows = len(df_master)
                 for idx, r_lsc in enumerate(df_master['Số lệnh sửa chữa']):
@@ -788,20 +839,31 @@ with tab_work:
                         
                 save_master(df_master)
                 prog.progress(100)
-                st_txt.empty()
-                st.success("✅ ĐÃ CHẠY XONG CHU TRÌNH! Dữ liệu đã lưu thành công vào Database.")
+                st.success("✅ Dữ liệu đã lưu thành công vào Hệ Thống.")
 
-    with btn_down:
-        with st.expander("📥 Xuất Báo Cáo Excel Phân Tách 8 Sheet", expanded=False):
-            st.caption("Bấm nút dưới để hệ thống định dạng chuẩn đẹp 8 sheet và xuất file tải về.")
-            if st.button("🚀 Khởi tạo file Excel tải về", use_container_width=True):
+    with c_btn2:
+        # Nút TẢI RIÊNG 1 LUỒNG ĐANG XEM (Format chuẩn, các cột thừa được Hide trong Excel để Unhide được)
+        df_export_single = df_show.drop(columns=['STT']) if 'STT' in df_show.columns else df_show
+        excel_single_bytes = xuat_excel_don_luong(df_export_single, luong_data, cols_to_hide=cols_to_hide_in_excel)
+        st.download_button(
+            label=f"⬇️ Tải Riêng Luồng Này (.xlsx)",
+            data=excel_single_bytes,
+            file_name=f"Bao_Cao_{sheet_file_name}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+    with c_btn3:
+        # Nút TẢI TẤT CẢ CÁC LUỒNG (8 Sheet Excel chuẩn)
+        with st.expander("📦 Xuất File Excel Tổng Hợp (Đầy Đủ 8 Sheet)", expanded=False):
+            if st.button("🚀 Khởi tạo toàn bộ 8 Sheet Excel", use_container_width=True):
                 p_bar_excel = st.progress(0)
                 st_txt_excel = st.empty()
                 excel_bytes = xuat_excel_da_sheet_with_progress(df_master, p_bar_excel, st_txt_excel)
                 st.download_button(
-                    label="⬇️ TẢI FILE EXCEL VỀ MÁY NGAY",
+                    label="⬇️ TẢI BÁO CÁO 8 SHEET VỀ MÁY",
                     data=excel_bytes,
-                    file_name="Bao_Cao_VinFast_Chuan_QuyTrinh.xlsx",
+                    file_name="Bao_Cao_VinFast_Toan_Bo_8_Sheet.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary",
                     use_container_width=True
@@ -809,7 +871,7 @@ with tab_work:
 
 # CÁC TAB CHỨC NĂNG KHI ĐÃ ĐĂNG NHẬP
 if is_admin:
-    # TAB 2: NẠP DỮ LIỆU DMS MỚI
+    # TAB 2: NẠP DỮ LIỆU DMS
     with tab_import:
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
         up_db = st.file_uploader("Kéo thả file Database mới vào đây", type=['csv', 'xlsx'], key='up_dms')
@@ -861,7 +923,6 @@ if is_admin:
                     if i % 30 == 0:
                         pct = int(10 + (i / total_inc) * 80)
                         p_bar_dms.progress(pct)
-                        txt_dms.write(f"⏳ Đang xử lý: {i}/{total_inc} dòng ({pct}%)")
 
                 if new_records:
                     df_master = pd.concat([df_master, pd.DataFrame(new_records)], ignore_index=True)
@@ -871,7 +932,7 @@ if is_admin:
                 txt_dms.empty()
                 st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Thêm **{len(new_records)}** lệnh mới và cập nhật trạng thái cho **{status_updated_cnt}** lệnh.")
 
-    # TAB 3: KHỚP HÓA ĐƠN VÀ TỰ ĐỘNG ĐỒNG BỘ CHO DASHBOARD
+    # TAB 3: KHỚP HÓA ĐƠN
     with tab_inv:
         st.subheader("Khớp file Hóa Đơn kế toán với Hệ Thống")
         up_inv = st.file_uploader("Tải file Bảng Kê Hóa Đơn", type=['csv', 'xlsx'], key='up_inv_tab')
@@ -987,14 +1048,13 @@ if is_admin:
                     if k_i % 30 == 0:
                         pct = int(15 + (k_i / max(total_keys, 1)) * 75)
                         p_bar_inv.progress(pct)
-                        txt_inv.write(f"⏳ Đang ghi nhận: {k_i}/{total_keys} lệnh ({pct}%)")
 
                 save_master(df_master)
                 p_bar_inv.progress(100)
                 txt_inv.empty()
                 st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa và tự động đồng bộ sang Dashboard!")
 
-    # TAB 4: IMPORT PHÊ DUYỆT BẢO HÀNH (EXCEL)
+    # TAB 4: IMPORT BẢO HÀNH
     with tab_bh_import:
         st.subheader("🛡️ Import Danh Sách Phê Duyệt Bảo Hành Hãng Tự Động")
         up_bh_file = st.file_uploader("Tải file duyệt bảo hành (XLSX / CSV)", type=['csv', 'xlsx'], key='up_bh_file')
@@ -1172,7 +1232,7 @@ if is_admin:
         else:
             st.info("Chưa có lệnh nào được đánh dấu là nợ GSM.")
 
-    # TAB 6: ĐỐI SOÁT UPLOAD LÊN CYBER
+    # TAB 6: ĐỐI SOÁT CYBER
     with tab_cyber:
         st.subheader("🔍 Đối Soát Lệnh Đã Hoàn Thành Chưa Up Lên Phần Mềm Cyber")
         st.caption("Chỉ xét các lệnh 'Đã đóng' hoặc 'Sẵn sàng bàn giao'. Form mã lệnh giữ nguyên dấu gạch ngang của DMS cũ.")
@@ -1207,7 +1267,6 @@ if is_admin:
             
             if len(df_chua_up) > 0:
                 st.error(f"⚠️ Phát hiện **{len(df_chua_up)}** lệnh sửa chữa đã xong nhưng CHƯA ĐƯỢC UP LÊN CYBER để xuất hóa đơn!")
-                
                 cols_display = ['Số lệnh sửa chữa', 'Trạng thái', 'Biển số', 'Cố vấn dịch vụ', 'Tên khách hàng', 'Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán']
                 cols_valid = [c for c in cols_display if c in df_chua_up.columns]
                 
