@@ -24,7 +24,6 @@ COT_DINH_DANH = [
     'Thời gian đóng LSC', 'Biển số', 'Xe GSM'
 ]
 
-# Đầy đủ tất cả các cột chi tiết tiền từ DMS gốc
 COT_TIEN = [
     'Tổng tiền công', 'Tổng tiền phụ tùng', 'Tổng trước chiết khấu',
     'Chiết khấu đại lý', 'Tổng chiết khấu', 'Tổng sau chiết khấu',
@@ -155,10 +154,11 @@ def doc_file_cyber(file_obj):
         df_raw = pd.read_excel(file_obj, header=None)
 
     h_idx = -1
-    col_lsc_idx = 1
+    col_lsc_idx = 0
     for idx, row in df_raw.head(20).iterrows():
         for c_i, v in enumerate(row.values):
-            if 'lệnh hãng' in str(v).lower():
+            val_str = str(v).lower()
+            if 'ro hãng' in val_str or 'ro hang' in val_str or 'lệnh hãng' in val_str:
                 h_idx = idx
                 col_lsc_idx = c_i
                 break
@@ -167,13 +167,13 @@ def doc_file_cyber(file_obj):
 
     if h_idx == -1:
         h_idx = 7
-        col_lsc_idx = 1
+        col_lsc_idx = 0
 
     cyber_series = df_raw.iloc[h_idx + 1:, col_lsc_idx].dropna().astype(str)
     cyber_keys = set()
     for x in cyber_series:
         val_clean = clean_lsc_giu_gach(x)
-        if len(val_clean) > 5:
+        if len(val_clean) > 5 and 'tổng cộng' not in val_clean.lower():
             cyber_keys.add(val_clean)
             cyber_keys.add(norm_lsc_key(val_clean))
     return cyber_keys
@@ -587,7 +587,6 @@ with tab_work:
     cols_hd = ['Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']
     cols_4_thanh_toan = ['KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán']
 
-    # Mặc định ẩn toàn bộ các cột chi tiết ở giữa, chỉ hiện các cột thanh toán cuối cùng
     if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
         df_show = df_kh_total.copy()
         default_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
