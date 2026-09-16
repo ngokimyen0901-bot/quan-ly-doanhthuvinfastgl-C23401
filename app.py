@@ -95,6 +95,21 @@ def clean_ngay_chuan(val):
         return f"{int(parts[2]):02d}/{int(parts[1]):02d}/{parts[0]}"
     return val_str
 
+def parse_thoi_gian_dong_dt(val):
+    if pd.isna(val) or not val:
+        return pd.NaT
+    val_str = str(val).strip()
+    # Format thường gặp: "10:42:00, 29/08/2026" hoặc "29/08/2026 10:42:00"
+    try:
+        if ',' in val_str:
+            parts = val_str.split(',')
+            time_p = parts[0].strip()
+            date_p = parts[1].strip()
+            return pd.to_datetime(f"{date_p} {time_p}", format='%d/%m/%Y %H:%M:%S', errors='coerce')
+        return pd.to_datetime(val_str, errors='coerce')
+    except Exception:
+        return pd.NaT
+
 def clean_tien_series(ser):
     return (
         ser.astype(str)
@@ -511,7 +526,7 @@ else:
     tabs = st.tabs(["📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
     tab_work = tabs[0]
 
-# TAB 1: BẢNG TÍNH WEB VỚI BỘ LỌC HIDE / UNHIDE CỘT
+# TAB 1: BẢNG TÍNH WEB VỚI BỘ LỌC VÀ SẮP XẾP CHUẨN XÁC
 with tab_work:
     df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
@@ -554,7 +569,8 @@ with tab_work:
             f"Bảo hiểm: **{bh_chua_hd_cnt}** lệnh ({bh_chua_hd_amt:,.0f} đ). Không tính Báo giá, Đang sửa chữa, Bảo hành, Nội bộ và Nợ GSM)*"
         )
 
-    f_col1, f_col2, f_col3 = st.columns([2, 2, 2])
+    # HÀNG BỘ LỌC VÀ TÌM KIẾM
+    f_col1, f_col2, f_col3, f_col4 = st.columns([2.5, 1.8, 2.2, 2.5])
     with f_col1:
         luong_data = st.selectbox("📂 Chọn luồng dữ liệu xem & quản trị:", [
             "1. KH Thanh Toán (Đã hoàn thành lệnh)",
@@ -568,9 +584,18 @@ with tab_work:
             "Toàn bộ dữ liệu (Sheet Tổng Hợp)"
         ])
     with f_col2:
-        loc_canh_bao_hd = st.selectbox("⚡ Lọc trạng thái HĐ:", ["Tất cả", "Chỉ hiển thị xe CHƯA có hóa đơn", "Đã có hóa đơn"])
+        loc_canh_bao_hd = st.selectbox("⚡ Lọc trạng thái HĐ:", ["Tất cả", "Chỉ xe CHƯA có HĐ", "Đã có hóa đơn"])
     with f_col3:
-        tim_kiem_nhanh = st.text_input("🔍 Tìm kiếm (Biển số / LSC / Tên):", "")
+        # BỘ LỌC SẮP XẾP CHUẨN XÁC THEO THỜI GIAN ĐÓNG LSC
+        sort_opt = st.selectbox("🔃 Sắp xếp theo:", [
+            "Mặc định (Theo file)", 
+            "Ngày đóng LSC (Mới nhất -> Cũ nhất)", 
+            "Ngày đóng LSC (Cũ nhất -> Mới nhất)",
+            "Tiền thanh toán (Cao -> Thấp)",
+            "Tiền thanh toán (Thấp -> Cao)"
+        ])
+    with f_col4:
+        tim_kiem_nhanh = st.text_input("🔍 Tìm kiếm (Biển số / LSC / Tên / Ngày đóng LSC):", "", placeholder="VD: 03/09/2026, 81A12345...")
 
     tat_ca_cot_bang = [
         'Số lệnh sửa chữa', 'Trạng thái', 'Cố vấn dịch vụ', 'Tên khách hàng', 
@@ -587,7 +612,6 @@ with tab_work:
     cols_hd = ['Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']
     cols_4_thanh_toan = ['KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán']
 
-    # Mặc định ẩn toàn bộ các cột chi tiết ở giữa, chỉ hiện các cột thanh toán cuối cùng
     if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
         df_show = df_kh_total.copy()
         default_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
@@ -638,18 +662,35 @@ with tab_work:
             key=f"col_filter_{luong_data}"
         )
 
-    if loc_canh_bao_hd == "Chỉ hiển thị xe CHƯA có hóa đơn":
+    if loc_canh_bao_hd == "Chỉ xe CHƯA có HĐ":
         df_show = df_show[(df_show['Số hóa đơn'].isna()) | (df_show['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))]
     elif loc_canh_bao_hd == "Đã có hóa đơn":
         df_show = df_show[df_show['Số hóa đơn'].notna() & (~df_show['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))]
 
+    # TÌM KIẾM ĐA NĂNG (TÌM CẢ NGÀY ĐÓNG LSC, BIỂN SỐ, LSC, TÊN KHÁCH)
     if tim_kiem_nhanh:
+        kw = str(tim_kiem_nhanh).strip()
         mask = (
-            df_show['Biển số'].astype(str).str.contains(tim_kiem_nhanh, case=False, na=False) |
-            df_show['Số lệnh sửa chữa'].astype(str).str.contains(tim_kiem_nhanh, case=False, na=False) |
-            df_show['Tên khách hàng'].astype(str).str.contains(tim_kiem_nhanh, case=False, na=False)
+            df_show['Biển số'].astype(str).str.contains(kw, case=False, na=False) |
+            df_show['Số lệnh sửa chữa'].astype(str).str.contains(kw, case=False, na=False) |
+            df_show['Tên khách hàng'].astype(str).str.contains(kw, case=False, na=False) |
+            df_show['Thời gian đóng LSC'].astype(str).str.contains(kw, case=False, na=False) |
+            df_show['Số hóa đơn'].astype(str).str.contains(kw, case=False, na=False)
         )
         df_show = df_show[mask]
+
+    # XỬ LÝ SẮP XẾP CHUẨN XÁC THEO THỜI GIAN ĐÓNG LSC (CHUYỂN SANG DATETIME ĐỂ SORT)
+    if sort_opt != "Mặc định (Theo file)":
+        df_show['temp_dt_dong'] = df_show['Thời gian đóng LSC'].apply(parse_thoi_gian_dong_dt)
+        if sort_opt == "Ngày đóng LSC (Mới nhất -> Cũ nhất)":
+            df_show = df_show.sort_values(by='temp_dt_dong', ascending=False)
+        elif sort_opt == "Ngày đóng LSC (Cũ nhất -> Mới nhất)":
+            df_show = df_show.sort_values(by='temp_dt_dong', ascending=True)
+        elif sort_opt == "Tiền thanh toán (Cao -> Thấp)":
+            df_show = df_show.sort_values(by='Số tiền thanh toán cuối', ascending=False)
+        elif sort_opt == "Tiền thanh toán (Thấp -> Cao)":
+            df_show = df_show.sort_values(by='Số tiền thanh toán cuối', ascending=True)
+        df_show = df_show.drop(columns=['temp_dt_dong'])
 
     df_show = chuan_hoa_kieu_du_lieu(df_show)
     df_show = df_show.reset_index(drop=True)
@@ -699,6 +740,8 @@ with tab_work:
 
     if not is_admin:
         st.info("ℹ️ Bạn đang ở chế độ **Chỉ Xem (Read-only)**. Để chỉnh sửa dữ liệu hoặc nạp file, vui lòng đăng nhập quyền Quản trị ở thanh bên trái.")
+    else:
+        st.caption("💡 **Mẹo:** Khi gõ chỉnh sửa trong ô, bạn có thể bấm **Ctrl + Z** trên bàn phím để Undo (quay lại giá trị cũ).")
 
     edited_df = st.data_editor(
         df_render,
@@ -712,7 +755,7 @@ with tab_work:
     )
 
     st.markdown("---")
-    c_btn1, c_btn2, c_btn3 = st.columns([3, 3, 4])
+    c_btn1, c_btn1_undo, c_btn2, c_btn3 = st.columns([3, 2, 2.5, 3.5])
 
     with c_btn1:
         if is_admin:
@@ -731,6 +774,12 @@ with tab_work:
                 save_master(df_master)
                 prog.progress(100)
                 st.success("✅ Dữ liệu đã lưu thành công vào Hệ Thống.")
+
+    with c_btn1_undo:
+        if is_admin:
+            # Nút hoàn tác khôi phục lại toàn bộ dữ liệu chưa lưu
+            if st.button("↩️ Hủy Thay Đổi (Reset)", use_container_width=True):
+                st.rerun()
 
     with c_btn2:
         df_export_single = df_show.drop(columns=['STT']) if 'STT' in df_show.columns else df_show
@@ -1110,7 +1159,7 @@ if is_admin:
         else:
             st.info("Chưa có lệnh nào được đánh dấu là nợ GSM.")
 
-    # TAB 6: ĐỐI SOÁT CYBER (ĐÃ SỬA CỘT A "Số RO hãng" VÀ ĐỊNH DẠNG FILE TẢI VỀ CHUẨN ĐẸP)
+    # TAB 6: ĐỐI SOÁT CYBER (ĐỊNH DẠNG FILE TẢI VỀ CHUẨN ĐẸP)
     with tab_cyber:
         st.subheader("🔍 Đối Soát Lệnh Đã Hoàn Thành Chưa Up Lên Phần Mềm Cyber")
         st.caption("Chỉ xét các lệnh 'Đã đóng' hoặc 'Sẵn sàng bàn giao'. Tự động nhận diện cột 'Số RO hãng' từ file Cyber.")
@@ -1150,7 +1199,7 @@ if is_admin:
                 
                 st.dataframe(df_chua_up[cols_valid], use_container_width=True)
                 
-                # Định dạng file tải về chuẩn đẹp (Navy header, auto-width, number format #,##0, total row)
+                # ĐỊNH DẠNG FILE EXCEL CHUẨN ĐẸP TRƯỚC KHI TẢI
                 buffer_chua_up = io.BytesIO()
                 with pd.ExcelWriter(buffer_chua_up, engine='openpyxl') as wr:
                     df_chua_up[cols_valid].to_excel(wr, index=False, sheet_name='Chua_Up_Cyber')
