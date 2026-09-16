@@ -24,6 +24,9 @@ DANH_SACH_ADMIN = {
     "admin": "Vinfastgialai@2026##"
 }
 
+# MỐC BẮT ĐẦU QUẢN TRỊ DỮ LIỆU: TỪ 29/08/2026 VỀ SAU
+MOC_BAT_DAU_DATE = pd.Timestamp(year=2026, month=8, day=29)
+
 COT_DINH_DANH = [
     'Số lệnh sửa chữa', 'Trạng thái', 'Cố vấn dịch vụ', 'Tên khách hàng', 
     'Thời gian đóng LSC', 'Biển số', 'Xe GSM'
@@ -117,6 +120,26 @@ def chuyen_ngay_gio_sortable(val):
         return val_str
     except Exception:
         return val_str
+
+# TRÍCH XUẤT NGÀY CỦA LSC ĐỂ LỌC THEO MỐC 29/08/2026
+def lay_ngay_lsc(lsc_str, tg_str=""):
+    m1 = re.search(r'WO-(\d{2})-(\d{2})-(\d{2})', str(lsc_str), re.IGNORECASE)
+    if m1:
+        yy, mm, dd = int(m1.group(1)), int(m1.group(2)), int(m1.group(3))
+        return pd.Timestamp(year=2000+yy, month=mm, day=dd)
+    m2 = re.search(r'WO-(\d{2})(\d{2})(\d{2})', str(lsc_str), re.IGNORECASE)
+    if m2:
+        yy, mm, dd = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+        return pd.Timestamp(year=2000+yy, month=mm, day=dd)
+    
+    # Dò từ Thời gian đóng LSC
+    m3 = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', str(tg_str))
+    if m3:
+        return pd.Timestamp(year=int(m3.group(1)), month=int(m3.group(2)), day=int(m3.group(3)))
+    m4 = re.search(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', str(tg_str))
+    if m4:
+        return pd.Timestamp(year=int(m4.group(3)), month=int(m4.group(2)), day=int(m4.group(1)))
+    return pd.NaT
 
 def clean_tien_series(ser):
     return (
@@ -229,20 +252,32 @@ def chuan_hoa_kieu_du_lieu(df_input):
 
     for col in COT_TIEN + ['Giá trị xuất hóa đơn']:
         if col in df_out.columns:
-            df_out[col] = pd.to_numeric(df_out[col], errors='coerce').fillna(0)
+            df_out[col] = pd.to_numeric(clean_tien_series(df_out[col]), errors='coerce').fillna(0)
     return df_out
 
-def xu_ly_loc_trung_lsc(df_target):
+# LỌC CHẶT CHẼ: CHỈ GIỮ LỆNH TỪ 29/08/2026 TRỞ ĐI & KHÔNG TRÙNG LẶP
+def loc_chuan_tu_29_thang_8(df_target):
     if df_target is None or len(df_target) == 0:
         return df_target
     df_res = df_target.copy()
     df_res['temp_norm_key'] = df_res['Số lệnh sửa chữa'].apply(norm_lsc_key)
-    
+    df_res = df_res[df_res['temp_norm_key'].str.len() > 3]
+
+    # Tính ngày của từng LSC
+    def check_ngay_hop_le(row):
+        d = lay_ngay_lsc(row.get('Số lệnh sửa chữa', ''), row.get('Thời gian đóng LSC', ''))
+        if pd.isna(d):
+            return True
+        return d >= MOC_BAT_DAU_DATE
+
+    mask_hop_le = df_res.apply(check_ngay_hop_le, axis=1)
+    df_res = df_res[mask_hop_le]
+
+    # Lọc trùng: ưu tiên dòng có hóa đơn hoặc có tiền
     df_res['has_hd'] = df_res['Số hóa đơn'].fillna('').astype(str).str.strip().apply(lambda x: 1 if x and x not in ['0', 'nan', 'None'] else 0)
     df_res = df_res.sort_values(by=['has_hd', 'Giá trị xuất hóa đơn', 'Số tiền thanh toán cuối'], ascending=[True, True, True])
     df_res = df_res.drop_duplicates(subset=['temp_norm_key'], keep='last')
     df_res = df_res.drop(columns=['temp_norm_key', 'has_hd'])
-    # LUÔN RESET INDEX ĐỂ TRÁNH LỖI KEYERROR
     df_res = df_res.reset_index(drop=True)
     return df_res
 
@@ -272,13 +307,22 @@ def load_cached_master():
 
     df_m = dong_bo_hoa_don(df_m)
     df_m = chuan_hoa_kieu_du_lieu(df_m)
-    df_m = xu_ly_loc_trung_lsc(df_m)
+    
+    # TỰ ĐỘNG LỌC BỎ CÁC THÁNG CŨ TRƯỚC 29/08/2026 VÀ BẢO TOÀN DỮ LIỆU TỪ 29/08
+    truoc = len(df_m)
+    df_m = loc_chuan_tu_29_thang_8(df_m)
+    if truoc > len(df_m):
+        try:
+            df_m.to_excel(MASTER_FILE, index=False)
+        except Exception:
+            pass
+            
     return df_m[TAT_CA_COT]
 
 def save_master(df_to_save):
     df_clean = dong_bo_hoa_don(df_to_save.copy())
     df_clean = chuan_hoa_kieu_du_lieu(df_clean)
-    df_clean = xu_ly_loc_trung_lsc(df_clean)
+    df_clean = loc_chuan_tu_29_thang_8(df_clean)
     df_clean.to_excel(MASTER_FILE, index=False)
     load_cached_master.clear()
 
@@ -532,6 +576,7 @@ with st.sidebar:
 
 # --- GIAO DIỆN CHÍNH ---
 st.title("🚗 Quản Trị Dịch Vụ, Hóa Đơn & Đối Soát Cyber")
+st.caption("📅 **Phạm vi quản lý dữ liệu:** Từ ngày **29/08/2026** đến nay (Tự động gạt bỏ các lệnh tháng cũ trước mốc này).")
 
 df_master = load_cached_master()
 
@@ -554,7 +599,7 @@ else:
     tabs = st.tabs(["📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
     tab_work = tabs[0]
 
-# TAB 1: BẢNG TÍNH WEB VỚI PHÂN BIỆT RÕ LỆNH TREO NỢ GSM VÀ ĐÃ XUẤT HĐ
+# TAB 1: BẢNG TÍNH WEB CHUẨN XÁC TỪ 29/08/2026
 with tab_work:
     df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
@@ -652,7 +697,7 @@ with tab_work:
         df_show = df_master.copy()
         sheet_file_name = "Tong_Hop_Toan_Bo"
 
-    df_show = xu_ly_loc_trung_lsc(df_show)
+    df_show = loc_chuan_tu_29_thang_8(df_show)
 
     # 2. KHUNG LỌC TRỰC TIẾP RIÊNG TỪNG TIÊU ĐỀ CỘT
     st.markdown("##### 📌 Lọc Chi Tiết Theo Tiêu Đề Cột:")
@@ -804,7 +849,7 @@ with tab_work:
         disabled=(not is_admin),
         num_rows="fixed",
         hide_index=True,
-        key=f"data_editor_table_v9_{luong_data}"
+        key=f"data_editor_table_v13_{luong_data}"
     )
 
     st.markdown("---")
@@ -836,12 +881,12 @@ with tab_work:
 
     with c_btn_clean:
         if is_admin:
-            if st.button("🧹 Quét & Xóa Lệnh Trùng", use_container_width=True):
+            if st.button("🧹 Quét & Tối Ưu Dữ Liệu (Từ 29/08)", use_container_width=True):
                 truoc_do = len(df_master)
-                df_master = xu_ly_loc_trung_lsc(df_master)
+                df_master = loc_chuan_tu_29_thang_8(df_master)
                 save_master(df_master)
                 da_xoa = truoc_do - len(df_master)
-                st.success(f"✅ Đã dọn dẹp xong! Loại bỏ thành công {da_xoa} dòng trùng lặp.")
+                st.success(f"✅ Đã dọn dẹp sạch! Loại bỏ thành công {da_xoa} dòng dữ liệu trước 29/08/2026.")
                 st.rerun()
 
     with c_btn2:
@@ -864,7 +909,7 @@ with tab_work:
                 st.download_button(
                     label="⬇️ TẢI BÁO CÁO 8 SHEET VỀ MÁY",
                     data=excel_bytes,
-                    file_name="Bao_Cao_VinFast_Toan_Bo_8_Sheet.xlsx",
+                    file_name="Bao_Cao_VinFast_Tu_29_08_Den_Nay.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary",
                     use_container_width=True
@@ -872,9 +917,10 @@ with tab_work:
 
 # CÁC TAB CHỨC NĂNG KHI ĐÃ ĐĂNG NHẬP
 if is_admin:
-    # TAB 2: NẠP DỮ LIỆU DMS (ĐÃ KHẮC PHỤC TRIỆT ĐỂ LỖI KEYERROR)
+    # TAB 2: NẠP DỮ LIỆU DMS
     with tab_import:
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
+        st.info("💡 **Quy tắc:** Hệ thống tự động lọc lấy các lệnh từ ngày **29/08/2026 trở về sau**. Mọi hóa đơn và ghi chú bạn đã khớp trước đó trên các xe này đều được bảo toàn 100%.")
         up_db = st.file_uploader("Kéo thả file Database mới vào đây", type=['csv', 'xlsx'], key='up_dms')
 
         if up_db:
@@ -895,13 +941,14 @@ if is_admin:
                 df_inc.loc[(df_inc['BH hãng thanh toán'] > 0) & (df_inc['Phê duyệt bảo hành'].isna()), 'Phê duyệt bảo hành'] = "Chờ duyệt"
                 df_inc = dong_bo_hoa_don(df_inc)
                 df_inc = chuan_hoa_kieu_du_lieu(df_inc)
-                df_inc = xu_ly_loc_trung_lsc(df_inc)
+                
+                # CHỈ LẤY LỆNH TỪ 29/08/2026 TRỞ ĐI
+                df_inc = loc_chuan_tu_29_thang_8(df_inc)
 
                 p_bar_dms = st.progress(0)
                 txt_dms = st.empty()
                 txt_dms.write("⏳ Đang đối soát và cập nhật dữ liệu... (10%)")
 
-                # ĐẢM BẢO df_master CÓ INDEX LIÊN TỤC
                 df_master = df_master.reset_index(drop=True)
                 master_norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 new_records = []
@@ -937,7 +984,8 @@ if is_admin:
                 save_master(df_master)
                 p_bar_dms.progress(100)
                 txt_dms.empty()
-                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Thêm **{len(new_records)}** lệnh mới và cập nhật trạng thái cho **{status_updated_cnt}** lệnh.")
+                st.success(f"✅ ĐÃ ĐỒNG BỘ THÀNH CÔNG! Thêm **{len(new_records)}** lệnh mới, cập nhật **{status_updated_cnt}** lệnh (Dữ liệu bảo đảm từ 29/08/2026).")
+                st.rerun()
 
     # TAB 3: KHỚP HÓA ĐƠN
     with tab_inv:
@@ -1046,7 +1094,7 @@ if is_admin:
                 save_master(df_master)
                 p_bar_inv.progress(100)
                 txt_inv.empty()
-                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa (Đã xử lý đầy đủ các lệnh nhiều hóa đơn).")
+                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa.")
 
     # TAB 4: IMPORT BẢO HÀNH
     with tab_bh_import:
@@ -1114,7 +1162,7 @@ if is_admin:
                 txt_bh.empty()
                 st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Đã cập nhật phê duyệt cho **{bh_updated}** lệnh bảo hành.")
 
-    # TAB 5: QUẢN LÝ CÔNG NỢ GSM (CHỈ MAP THEO ĐÚNG SỐ LSC / WO DO BẠN CUNG CẤP)
+    # TAB 5: QUẢN LÝ CÔNG NỢ GSM (CHỈ THEO SỐ WO)
     with tab_gsm_import:
         st.subheader("🚕 Quản Lý Danh Sách Công NỢ GSM (Chỉ Theo Số WO)")
         
@@ -1268,7 +1316,7 @@ if is_admin:
             st.success("✅ ĐÃ CHẠY XONG CHU TRÌNH ĐỐI SOÁT!")
             
             c1, c2, c3 = st.columns(3)
-            c1.metric("📌 Tổng Lệnh Đã Hoàn Thành (DMS)", f"{len(df_comp):,} lệnh")
+            c1.metric("📌 Tổng Lệnh Đã Hoàn Thành", f"{len(df_comp):,} lệnh")
             c2.metric("🟢 Đã Up Lên Cyber", f"{len(df_da_up):,} lệnh")
             c3.metric("🚨 CHƯA UP LÊN CYBER", f"{len(df_chua_up):,} lệnh", delta=f"-{len(df_chua_up)} lệnh", delta_color="inverse")
             
