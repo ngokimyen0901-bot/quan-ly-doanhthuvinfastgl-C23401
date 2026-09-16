@@ -40,7 +40,7 @@ TAT_CA_COT = COT_DINH_DANH + COT_TIEN + COT_THEM + COT_HOA_DON
 TEXT_COLUMNS = [
     'Số lệnh sửa chữa', 'Trạng thái', 'Cố vấn dịch vụ', 'Tên khách hàng',
     'Biển số', 'Xe GSM', 'Phân loại KH', 
-    'Phê duyệt bảo hành', 'Số hóa đơn'
+    'Phê duyệt bảo hành', 'Số hóa đơn', 'Ngày xuất hóa đơn'
 ]
 
 TRANG_THAI_HOAN_THANH = ['Đã đóng', 'Sẵn sàng bàn giao']
@@ -95,21 +95,23 @@ def clean_ngay_chuan(val):
         return f"{int(parts[2]):02d}/{int(parts[1]):02d}/{parts[0]}"
     return val_str
 
-def chuyen_thoi_gian_dong_chuan(val):
+def chuyen_ngay_gio_sortable(val):
     if pd.isna(val) or not val:
-        return pd.NaT
+        return ""
     val_str = str(val).strip()
     if val_str.lower() in ['nan', 'none', '', 'nat']:
-        return pd.NaT
+        return ""
     try:
         if ',' in val_str:
             parts = val_str.split(',')
             t_part = parts[0].strip()
             d_part = parts[1].strip()
-            return pd.to_datetime(f"{d_part} {t_part}", format='%d/%m/%Y %H:%M:%S', errors='coerce')
-        return pd.to_datetime(val_str, errors='coerce')
+            d_clean = clean_ngay_chuan(d_part)
+            d_split = d_clean.split('/')
+            return f"{d_split[2]}/{d_split[1]}/{d_split[0]} {t_part}"
+        return val_str
     except Exception:
-        return pd.NaT
+        return val_str
 
 def clean_tien_series(ser):
     return (
@@ -216,6 +218,10 @@ def chuan_hoa_kieu_du_lieu(df_input):
                 df_out[col] = df_out[col].fillna('').astype(str).apply(clean_lsc_giu_gach)
             else:
                 df_out[col] = df_out[col].fillna('').astype(str).replace('nan', '')
+    
+    if 'Thời gian đóng LSC' in df_out.columns:
+        df_out['Thời gian đóng LSC'] = df_out['Thời gian đóng LSC'].apply(chuyen_ngay_gio_sortable)
+
     for col in COT_TIEN + ['Giá trị xuất hóa đơn']:
         if col in df_out.columns:
             df_out[col] = pd.to_numeric(df_out[col], errors='coerce').fillna(0)
@@ -527,7 +533,7 @@ else:
     tabs = st.tabs(["📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
     tab_work = tabs[0]
 
-# TAB 1: BẢNG TÍNH WEB VỚI BỘ LỌC TRỰC TIẾP TỪNG TIÊU ĐỀ
+# TAB 1: BẢNG TÍNH WEB VỚI BỘ LỌC TRỰC TIẾP TỪNG CỘT & MỞ KHÓA SORT TẤT CẢ CÁC CỘT
 with tab_work:
     df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
@@ -570,8 +576,8 @@ with tab_work:
             f"Bảo hiểm: **{bh_chua_hd_cnt}** lệnh ({bh_chua_hd_amt:,.0f} đ). Không tính Báo giá, Đang sửa chữa, Bảo hành, Nội bộ và Nợ GSM)*"
         )
 
-    # 1. HÀNG BỘ LỌC CHÍNH (LUỒNG DỮ LIỆU & LỌC NHANH)
-    f_col1, f_col2, f_col3, f_col4 = st.columns([2.5, 1.8, 2.2, 2.5])
+    # 1. HÀNG BỘ LỌC CHÍNH
+    f_col1, f_col2, f_col3 = st.columns([3, 2, 3])
     with f_col1:
         luong_data = st.selectbox("📂 Chọn luồng dữ liệu xem & quản trị:", [
             "1. KH Thanh Toán (Đã hoàn thành lệnh)",
@@ -587,19 +593,8 @@ with tab_work:
     with f_col2:
         loc_canh_bao_hd = st.selectbox("⚡ Lọc trạng thái HĐ:", ["Tất cả", "Chỉ xe CHƯA có HĐ", "Đã có hóa đơn"])
     with f_col3:
-        sort_col_choice = st.selectbox("🔃 Chọn cột muốn Sắp xếp (Sort):", [
-            "Thời gian đóng LSC",
-            "Số tiền thanh toán cuối",
-            "Số lệnh sửa chữa",
-            "Biển số",
-            "KH thanh toán",
-            "Tên khách hàng",
-            "Cố vấn dịch vụ"
-        ])
-    with f_col4:
-        sort_order_choice = st.selectbox("Chiều sắp xếp:", ["Mới nhất / Lớn nhất trước (Giảm dần)", "Cũ nhất / Nhỏ nhất trước (Tăng dần)"])
+        tim_kiem_tu_do = st.text_input("🔍 Tìm kiếm nhanh (Biển số / LSC / Tên bất kỳ):", "", placeholder="VD: 81A13363, C23401...")
 
-    # CHỌN LUỒNG DỮ LIỆU CƠ SỞ
     if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
         df_show = df_kh_total.copy()
         sheet_file_name = "1_KH_Thanh_Toan"
@@ -632,36 +627,26 @@ with tab_work:
         df_show = df_master.copy()
         sheet_file_name = "Tong_Hop_Toan_Bo"
 
-    # CHUẨN BỊ SẴN CỘT THỜI GIAN ĐÓNG ĐỂ SORT CHÍNH XÁC
-    df_show['dt_dong_chuan'] = df_show['Thời gian đóng LSC'].apply(chuyen_thoi_gian_dong_chuan)
-    df_show['ngay_dong_str'] = df_show['dt_dong_chuan'].dt.strftime('%d/%m/%Y').fillna('')
+    # Lấy chuỗi Ngày (DD/MM/YYYY) để tạo bộ lọc chọn ngày
+    df_show['ngay_dong_lsc'] = df_show['Thời gian đóng LSC'].astype(str).str.extract(r'(\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b)')[0].fillna('')
 
-    # 2. KHUNG LỌC TRỰC TIẾP CHO TỪNG TIÊU ĐỀ CỘT (NHƯ AUTOFILTER EXCEL)
-    with st.expander("🔍 BỘ LỌC TRỰC TIẾP TỪNG CỘT (Bấm để mở rộng lọc theo ngày, CVDV, trạng thái, biển số...)", expanded=True):
-        fl_c1, fl_c2, fl_c3, fl_c4 = st.columns(4)
-        
-        with fl_c1:
-            tim_kiem_tu_do = st.text_input("🔎 Tìm kiếm tự do (Mã LSC / Biển số / Tên):", "", placeholder="Nhập chữ bất kỳ...")
-            list_cvdv = sorted([x for x in df_show['Cố vấn dịch vụ'].dropna().unique() if str(x).strip()])
-            sel_cvdv = st.multiselect("Lọc Cố vấn dịch vụ:", options=list_cvdv, default=[])
+    # 2. KHUNG LỌC TRỰC TIẾP RIÊNG TỪNG TIÊU ĐỀ CỘT
+    st.markdown("##### 📌 Lọc Chi Tiết Theo Tiêu Đề Cột:")
+    f_box1, f_box2, f_box3 = st.columns(3)
 
-        with fl_c2:
-            list_ngay_dong = sorted([x for x in df_show['ngay_dong_str'].unique() if x], reverse=True)
-            sel_ngay_dong = st.multiselect("📅 Lọc Ngày đóng LSC (VD: 03/09/2026):", options=list_ngay_dong, default=[])
-            list_trang_thai = sorted([x for x in df_show['Trạng thái'].dropna().unique() if str(x).strip()])
-            sel_trang_thai = st.multiselect("Lọc Trạng thái lệnh:", options=list_trang_thai, default=[])
+    with f_box1:
+        list_all_days = sorted([x for x in df_show['ngay_dong_lsc'].unique() if x], reverse=True)
+        sel_ngay_dong = st.multiselect("📅 Lọc Ngày đóng LSC:", options=list_all_days, default=[], placeholder="Chọn ngày đóng (VD: 2026/09/03)...")
 
-        with fl_c3:
-            list_pl_kh = sorted([x for x in df_show['Phân loại KH'].dropna().unique() if str(x).strip()])
-            sel_pl_kh = st.multiselect("Lọc Phân loại KH:", options=list_pl_kh, default=[])
-            list_pd_bh = sorted([x for x in df_show['Phê duyệt bảo hành'].dropna().unique() if str(x).strip()])
-            sel_pd_bh = st.multiselect("Lọc Phê duyệt BH:", options=list_pd_bh, default=[])
+    with f_box2:
+        list_cvdv = sorted([x for x in df_show['Cố vấn dịch vụ'].dropna().unique() if str(x).strip()])
+        sel_cvdv = st.multiselect("👨‍🔧 Lọc Cố vấn dịch vụ:", options=list_cvdv, default=[], placeholder="Chọn CVDV...")
 
-        with fl_c4:
-            loc_tien_min = st.number_input("Số tiền thanh toán từ (>=):", min_value=0, value=0, step=500000)
-            loc_tien_max = st.number_input("Đến tiền (<= 0 là không giới hạn):", min_value=0, value=0, step=1000000)
+    with f_box3:
+        list_trang_thai = sorted([x for x in df_show['Trạng thái'].dropna().unique() if str(x).strip()])
+        sel_trang_thai = st.multiselect("📋 Lọc Trạng thái:", options=list_trang_thai, default=[], placeholder="Đã đóng / Sẵn sàng...")
 
-    # THỰC THI BỘ LỌC CHI TIẾT
+    # THỰC THI BỘ LỌC
     if loc_canh_bao_hd == "Chỉ xe CHƯA có HĐ":
         df_show = df_show[(df_show['Số hóa đơn'].isna()) | (df_show['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))]
     elif loc_canh_bao_hd == "Đã có hóa đơn":
@@ -673,41 +658,21 @@ with tab_work:
             df_show['Biển số'].astype(str).str.contains(kw, case=False, na=False) |
             df_show['Số lệnh sửa chữa'].astype(str).str.contains(kw, case=False, na=False) |
             df_show['Tên khách hàng'].astype(str).str.contains(kw, case=False, na=False) |
+            df_show['Thời gian đóng LSC'].astype(str).str.contains(kw, case=False, na=False) |
             df_show['Số hóa đơn'].astype(str).str.contains(kw, case=False, na=False)
         )
         df_show = df_show[mask]
 
+    if sel_ngay_dong:
+        df_show = df_show[df_show['ngay_dong_lsc'].isin(sel_ngay_dong)]
+
     if sel_cvdv:
         df_show = df_show[df_show['Cố vấn dịch vụ'].isin(sel_cvdv)]
-
-    if sel_ngay_dong:
-        df_show = df_show[df_show['ngay_dong_str'].isin(sel_ngay_dong)]
 
     if sel_trang_thai:
         df_show = df_show[df_show['Trạng thái'].isin(sel_trang_thai)]
 
-    if sel_pl_kh:
-        df_show = df_show[df_show['Phân loại KH'].isin(sel_pl_kh)]
-
-    if sel_pd_bh:
-        df_show = df_show[df_show['Phê duyệt bảo hành'].isin(sel_pd_bh)]
-
-    if loc_tien_min > 0:
-        df_show = df_show[df_show['Số tiền thanh toán cuối'] >= loc_tien_min]
-
-    if loc_tien_max > 0:
-        df_show = df_show[df_show['Số tiền thanh toán cuối'] <= loc_tien_max]
-
-    # THỰC HIỆN SẮP XẾP (SORT) TRÊN DỮ LIỆU
-    is_asc = (sort_order_choice == "Cũ nhất / Nhỏ nhất trước (Tăng dần)")
-    if sort_col_choice == "Thời gian đóng LSC":
-        df_show = df_show.sort_values(by='dt_dong_chuan', ascending=is_asc)
-    elif sort_col_choice in df_show.columns:
-        df_show = df_show.sort_values(by=sort_col_choice, ascending=is_asc)
-
-    # Đưa Thời gian đóng LSC về dạng Datetime để bảng hỗ trợ click đầu cột sort trực tiếp
-    df_show['Thời gian đóng LSC'] = df_show['dt_dong_chuan']
-    df_show = df_show.drop(columns=['dt_dong_chuan', 'ngay_dong_str'])
+    df_show = df_show.drop(columns=['ngay_dong_lsc'])
 
     # 3. TÙY BIẾN ẨN / HIỆN CỘT
     tat_ca_cot_bang = [
@@ -762,15 +727,15 @@ with tab_work:
 
     is_admin = st.session_state.logged_in
 
-    # CẤU HÌNH CỘT: "Thời gian đóng LSC" là DatetimeColumn hỗ trợ click đầu cột sort trực tiếp
+    # ĐÃ GỠ BỎ TOÀN BỘ pinned=True ĐỂ TẤT CẢ CÁC CỘT ĐỀU SORT ĐƯỢC THOẢI MÁI
     col_cfg = {
-        "STT": st.column_config.NumberColumn("STT", disabled=True, pinned=True, width="small"),
-        "Số lệnh sửa chữa": st.column_config.TextColumn("Số LSC", disabled=True, pinned=True),
-        "Trạng thái": st.column_config.TextColumn("Trạng thái", disabled=True, pinned=True),
-        "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", disabled=not is_admin, pinned=True),
-        "Tên khách hàng": st.column_config.TextColumn("Tên khách hàng", disabled=not is_admin, pinned=True),
-        "Thời gian đóng LSC": st.column_config.DatetimeColumn("Thời gian đóng LSC", format="DD/MM/YYYY HH:mm:ss", disabled=True, pinned=True),
-        "Biển số": st.column_config.TextColumn("Biển số", disabled=not is_admin, pinned=True),
+        "STT": st.column_config.NumberColumn("STT", disabled=True, width="small"),
+        "Số lệnh sửa chữa": st.column_config.TextColumn("Số LSC", disabled=True),
+        "Trạng thái": st.column_config.TextColumn("Trạng thái", disabled=True),
+        "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", disabled=not is_admin),
+        "Tên khách hàng": st.column_config.TextColumn("Tên khách hàng", disabled=not is_admin),
+        "Thời gian đóng LSC": st.column_config.TextColumn("Thời gian đóng LSC", disabled=True),
+        "Biển số": st.column_config.TextColumn("Biển số", disabled=not is_admin),
         "Phân loại KH": st.column_config.SelectboxColumn("Phân loại KH", options=["KH Thông Thường", "GSM Công nợ"], disabled=not is_admin, required=True),
         "Xe GSM": st.column_config.TextColumn("Xe GSM", disabled=True),
         "Phê duyệt bảo hành": st.column_config.SelectboxColumn(
@@ -802,17 +767,18 @@ with tab_work:
     if not is_admin:
         st.info("ℹ️ Bạn đang ở chế độ **Chỉ Xem (Read-only)**. Để chỉnh sửa dữ liệu hoặc nạp file, vui lòng đăng nhập quyền Quản trị ở thanh bên trái.")
     else:
-        st.caption("💡 **Mẹo:** Trong lúc gõ sửa trực tiếp trên bảng, bạn có thể bấm **Ctrl + Z** để Undo lại giá trị trước đó.")
+        st.caption("💡 **Mẹo:** Bấm vào tiêu đề bất kỳ cột nào để Sort trực tiếp. Khi nhập tay, có thể bấm **Ctrl + Z** để hoàn tác.")
 
+    # Dùng timestamp để làm mới hoàn toàn session state của bảng khi đổi luồng hoặc lọc
     edited_df = st.data_editor(
         df_render,
         use_container_width=True,
-        height=530,
+        height=550,
         column_config=col_cfg,
         disabled=(not is_admin),
         num_rows="fixed",
         hide_index=True,
-        key=f"data_editor_table_{luong_data}"
+        key=f"data_editor_table_v3_{luong_data}"
     )
 
     st.markdown("---")
