@@ -587,6 +587,7 @@ with tab_work:
     cols_hd = ['Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']
     cols_4_thanh_toan = ['KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán']
 
+    # Mặc định ẩn toàn bộ các cột chi tiết ở giữa, chỉ hiện các cột thanh toán cuối cùng
     if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
         df_show = df_kh_total.copy()
         default_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
@@ -1109,10 +1110,10 @@ if is_admin:
         else:
             st.info("Chưa có lệnh nào được đánh dấu là nợ GSM.")
 
-    # TAB 6: ĐỐI SOÁT CYBER
+    # TAB 6: ĐỐI SOÁT CYBER (ĐÃ SỬA CỘT A "Số RO hãng" VÀ ĐỊNH DẠNG FILE TẢI VỀ CHUẨN ĐẸP)
     with tab_cyber:
         st.subheader("🔍 Đối Soát Lệnh Đã Hoàn Thành Chưa Up Lên Phần Mềm Cyber")
-        st.caption("Chỉ xét các lệnh 'Đã đóng' hoặc 'Sẵn sàng bàn giao'. Form mã lệnh giữ nguyên dấu gạch ngang của DMS cũ.")
+        st.caption("Chỉ xét các lệnh 'Đã đóng' hoặc 'Sẵn sàng bàn giao'. Tự động nhận diện cột 'Số RO hãng' từ file Cyber.")
         
         up_cyber_file = st.file_uploader("Tải lên file BẢNG TỔNG HỢP LỆNH SỬA CHỮA từ Cyber (Excel)", type=['xlsx', 'xls', 'csv'], key='up_cyber_file')
         
@@ -1139,7 +1140,7 @@ if is_admin:
             
             c1, c2, c3 = st.columns(3)
             c1.metric("📌 Tổng Lệnh Đã Hoàn Thành (DMS)", f"{len(df_comp):,} lệnh")
-            c2.metric(" Đã Up Lên Cyber", f"{len(df_da_up):,} lệnh")
+            c2.metric("🟢 Đã Up Lên Cyber", f"{len(df_da_up):,} lệnh")
             c3.metric("🚨 CHƯA UP LÊN CYBER", f"{len(df_chua_up):,} lệnh", delta=f"-{len(df_chua_up)} lệnh", delta_color="inverse")
             
             if len(df_chua_up) > 0:
@@ -1149,17 +1150,24 @@ if is_admin:
                 
                 st.dataframe(df_chua_up[cols_valid], use_container_width=True)
                 
+                # Định dạng file tải về chuẩn đẹp (Navy header, auto-width, number format #,##0, total row)
                 buffer_chua_up = io.BytesIO()
                 with pd.ExcelWriter(buffer_chua_up, engine='openpyxl') as wr:
                     df_chua_up[cols_valid].to_excel(wr, index=False, sheet_name='Chua_Up_Cyber')
                 buffer_chua_up.seek(0)
                 
+                wb_chua = openpyxl.load_workbook(buffer_chua_up)
+                format_sheet_in_workbook(wb_chua.active, 'Chua_Up_Cyber')
+                out_chua = io.BytesIO()
+                wb_chua.save(out_chua)
+                out_chua.seek(0)
+                
                 st.download_button(
-                    label="📥 Tải Danh Sách Các Lệnh Chưa Up Lên Cyber (.xlsx)",
-                    data=buffer_chua_up,
+                    label="📥 Tải Danh Sách Các Lệnh Chưa Up Lên Cyber (Định Dạng Đẹp)",
+                    data=out_chua,
                     file_name="Danh_Sach_LSC_Chua_Up_Cyber.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary"
                 )
             else:
-                st.success("✅ ĐÃ CHẠY XONG CHU TRÌNH! Toàn bộ các lệnh đã hoàn thành đều đã được up lên Cyber đầy đủ.")
+                st.success("✅ Toàn bộ các lệnh đã hoàn thành đều đã được up lên Cyber đầy đủ.")
