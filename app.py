@@ -388,7 +388,7 @@ def format_sheet_in_workbook(ws, sheet_name, cols_to_hide=None):
         col_header = ws.cell(row=1, column=col[0].column).value
         col_let = get_column_letter(col[0].column)
         
-        # Ẩn cột nếu thuộc danh sách ẩn (có thể Unhide trong Excel)
+        # Ẩn cột trong Excel nếu thuộc danh sách ẩn (vẫn Unhide được)
         if cols_to_hide and col_header in cols_to_hide:
             ws.column_dimensions[col_let].hidden = True
         else:
@@ -640,7 +640,7 @@ with tab_dash:
     else:
         st.info("ℹ️ Hệ thống chưa có dữ liệu Bảng Kê Hóa Đơn. Vui lòng nạp ở trên hoặc tại Tab 3.")
 
-# TAB 1: BẢNG TÍNH WEB & PHÂN LUỒNG TỐI ƯU CỘT
+# TAB 1: BẢNG TÍNH WEB VỚI BỘ LỌC HIDE / UNHIDE CỘT
 with tab_work:
     df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
@@ -701,34 +701,38 @@ with tab_work:
     with f_col3:
         tim_kiem_nhanh = st.text_input("🔍 Tìm kiếm (Biển số / LSC / Tên):", "")
 
-    # Xác định các cột cần hiển thị và ẩn theo từng luồng
-    cols_base = ['STT', 'Số lệnh sửa chữa', 'Trạng thái', 'Cố vấn dịch vụ', 'Tên khách hàng', 'Thời gian đóng LSC', 'Biển số']
+    # DANH SÁCH TẤT CẢ CÁC CỘT ĐỂ NGƯỜI DÙNG TÙY BIẾN
+    tat_ca_cot_bang = [
+        'Số lệnh sửa chữa', 'Trạng thái', 'Cố vấn dịch vụ', 'Tên khách hàng', 
+        'Thời gian đóng LSC', 'Biển số', 'Xe GSM', 'Phân loại KH', 'Phê duyệt bảo hành',
+        'Tổng tiền công', 'Tổng tiền phụ tùng', 'Số tiền thanh toán cuối', 'KH thanh toán', 
+        'BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán', 
+        'Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn'
+    ]
+
+    cols_base = ['Số lệnh sửa chữa', 'Trạng thái', 'Cố vấn dịch vụ', 'Tên khách hàng', 'Thời gian đóng LSC', 'Biển số']
     cols_hd = ['Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']
     
+    # Cấu hình danh sách cột hiển thị mặc định theo từng luồng
     if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
         df_show = df_kh_total.copy()
-        visible_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
-        cols_to_hide_in_excel = ['BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán', 'Phê duyệt bảo hành', 'Xe GSM']
+        default_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
         sheet_file_name = "1_KH_Thanh_Toan"
     elif luong_data == "2. GSM Công Nợ (Chỉ các lệnh thuộc file công nợ)":
         df_show = df_gsm_debt.copy()
-        visible_cols = cols_base + ['Phân loại KH', 'Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
-        cols_to_hide_in_excel = ['BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán', 'Phê duyệt bảo hành']
+        default_cols = cols_base + ['Phân loại KH', 'Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
         sheet_file_name = "2_GSM_Cong_No"
     elif luong_data == "3. Bảo Hành Hãng (W) - Phê duyệt":
         df_show = df_bh_hang.copy()
-        visible_cols = cols_base + ['BH hãng thanh toán', 'Phê duyệt bảo hành'] + cols_hd
-        cols_to_hide_in_excel = ['KH thanh toán', 'BH thanh toán', 'Nội bộ thanh toán', 'Phân loại KH', 'Xe GSM']
+        default_cols = cols_base + ['BH hãng thanh toán', 'Phê duyệt bảo hành'] + cols_hd
         sheet_file_name = "3_Bao_Hanh_Hang"
     elif luong_data == "4. Bảo Hiểm (Insurance)":
         df_show = df_bh.copy()
-        visible_cols = cols_base + ['Số tiền thanh toán cuối', 'BH thanh toán'] + cols_hd
-        cols_to_hide_in_excel = ['KH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán', 'Phê duyệt bảo hành', 'Phân loại KH']
+        default_cols = cols_base + ['Số tiền thanh toán cuối', 'BH thanh toán'] + cols_hd
         sheet_file_name = "4_Bao_Hiem"
     elif luong_data == "5. Nội bộ thanh toán":
         df_show = df_hoanthanh[df_hoanthanh['Nội bộ thanh toán'] > 0].copy()
-        visible_cols = cols_base + ['Số tiền thanh toán cuối', 'Nội bộ thanh toán'] + cols_hd
-        cols_to_hide_in_excel = ['KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán', 'Phê duyệt bảo hành']
+        default_cols = cols_base + ['Số tiền thanh toán cuối', 'Nội bộ thanh toán'] + cols_hd
         sheet_file_name = "5_Noi_Bo"
     elif luong_data == "🚨 Lệnh Đã Xong Chưa Xuất HĐ (Chỉ KH & Bảo Hiểm)":
         mask_target = (df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (
@@ -736,24 +740,29 @@ with tab_work:
             (df_master['BH thanh toán'] > 0)
         ) & (df_master['Số hóa đơn'].isna() | df_master['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))
         df_show = df_master[mask_target].copy()
-        visible_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán'] + cols_hd
-        cols_to_hide_in_excel = ['BH hãng thanh toán', 'Nội bộ thanh toán', 'Phê duyệt bảo hành']
+        default_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán'] + cols_hd
         sheet_file_name = "Canh_Bao_Chua_Xuat_HD"
     elif luong_data == "6. Xem Lệnh Chưa Hoàn Thành (Báo giá & Đang sửa chữa)":
         df_show = df_chuahoanthanh.copy()
-        visible_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán']
-        cols_to_hide_in_excel = []
+        default_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán']
         sheet_file_name = "6_Lenh_Chua_Xong"
     elif luong_data == "7. Xem Lệnh Đã Hủy":
         df_show = df_master[df_master['Trạng thái'] == 'Đã hủy'].copy()
-        visible_cols = cols_base + ['Số tiền thanh toán cuối']
-        cols_to_hide_in_excel = []
+        default_cols = cols_base + ['Số tiền thanh toán cuối']
         sheet_file_name = "7_Lenh_Da_Huy"
     else:
         df_show = df_master.copy()
-        visible_cols = TAT_CA_COT
-        cols_to_hide_in_excel = []
+        default_cols = tat_ca_cot_bang
         sheet_file_name = "Tong_Hop_Toan_Bo"
+
+    # KHUNG BỘ LỌC TÙY CHỌN HIDE / UNHIDE CỘT
+    with st.expander("👁️ Tùy biến Cột hiển thị (Bấm để Tick chọn Unhide hoặc bỏ chọn để Hide cột)", expanded=False):
+        selected_cols = st.multiselect(
+            "Chọn các cột bạn muốn hiển thị trên bảng tính:",
+            options=tat_ca_cot_bang,
+            default=[c for c in default_cols if c in tat_ca_cot_bang],
+            key=f"col_filter_{luong_data}"
+        )
 
     if loc_canh_bao_hd == "Chỉ hiển thị xe CHƯA có hóa đơn":
         df_show = df_show[(df_show['Số hóa đơn'].isna()) | (df_show['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))]
@@ -772,13 +781,16 @@ with tab_work:
     df_show = df_show.reset_index(drop=True)
     df_show.insert(0, 'STT', range(1, len(df_show) + 1))
 
-    # Lọc các cột hiển thị trên bảng web
-    actual_cols = [c for c in visible_cols if c in df_show.columns]
+    # Ghép cột STT cố định lên đầu kèm danh sách cột người dùng đã chọn
+    actual_cols = ['STT'] + [c for c in selected_cols if c in df_show.columns]
     df_render = df_show[actual_cols].copy()
+
+    # Danh sách các cột bị bỏ chọn sẽ được ẩn sẵn trong Excel
+    cols_to_hide_in_excel = [c for c in tat_ca_cot_bang if c not in selected_cols]
 
     is_admin = st.session_state.logged_in
 
-    # Cấu hình NumberColumn với dấu phẩy ngăn cách hàng nghìn
+    # Cấu hình NumberColumn với dấu phẩy ngăn cách hàng nghìn (%,d đ)
     col_cfg = {
         "STT": st.column_config.NumberColumn("STT", disabled=True, pinned=True, width="small"),
         "Số lệnh sửa chữa": st.column_config.TextColumn("Số LSC", disabled=True, pinned=True),
@@ -795,6 +807,8 @@ with tab_work:
             disabled=not is_admin,
             required=False
         ),
+        "Tổng tiền công": st.column_config.NumberColumn("Tổng tiền công", format="%,d đ", disabled=True),
+        "Tổng tiền phụ tùng": st.column_config.NumberColumn("Tổng phụ tùng", format="%,d đ", disabled=True),
         "Số tiền thanh toán cuối": st.column_config.NumberColumn("Tổng TT cuối", format="%,d đ", disabled=True),
         "KH thanh toán": st.column_config.NumberColumn("KH thanh toán", format="%,d đ", disabled=True),
         "BH hãng thanh toán": st.column_config.NumberColumn("BH hãng (W)", format="%,d đ", disabled=True),
@@ -816,10 +830,9 @@ with tab_work:
         disabled=(not is_admin),
         num_rows="fixed",
         hide_index=True,
-        key="data_editor_table"
+        key=f"data_editor_table_{luong_data}"
     )
 
-    # 3 NÚT BẤM RIÊNG BIỆT RÕ RÀNG
     st.markdown("---")
     c_btn1, c_btn2, c_btn3 = st.columns([3, 3, 4])
 
@@ -842,7 +855,7 @@ with tab_work:
                 st.success("✅ Dữ liệu đã lưu thành công vào Hệ Thống.")
 
     with c_btn2:
-        # Nút TẢI RIÊNG 1 LUỒNG ĐANG XEM (Format chuẩn, các cột thừa được Hide trong Excel để Unhide được)
+        # NÚT TẢI RIÊNG LUỒNG NÀY (Định dạng chuẩn, cột không chọn được ẩn sẵn trong Excel)
         df_export_single = df_show.drop(columns=['STT']) if 'STT' in df_show.columns else df_show
         excel_single_bytes = xuat_excel_don_luong(df_export_single, luong_data, cols_to_hide=cols_to_hide_in_excel)
         st.download_button(
@@ -854,7 +867,7 @@ with tab_work:
         )
 
     with c_btn3:
-        # Nút TẢI TẤT CẢ CÁC LUỒNG (8 Sheet Excel chuẩn)
+        # NÚT TẢI TRỌN BỘ 8 SHEET
         with st.expander("📦 Xuất File Excel Tổng Hợp (Đầy Đủ 8 Sheet)", expanded=False):
             if st.button("🚀 Khởi tạo toàn bộ 8 Sheet Excel", use_container_width=True):
                 p_bar_excel = st.progress(0)
