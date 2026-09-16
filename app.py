@@ -232,14 +232,12 @@ def chuan_hoa_kieu_du_lieu(df_input):
             df_out[col] = pd.to_numeric(df_out[col], errors='coerce').fillna(0)
     return df_out
 
-# HÀM XỬ LÝ LỌC TRÙNG LỆNH CHUYÊN SÂU
 def xu_ly_loc_trung_lsc(df_target):
     if df_target is None or len(df_target) == 0:
         return df_target
     df_res = df_target.copy()
     df_res['temp_norm_key'] = df_res['Số lệnh sửa chữa'].apply(norm_lsc_key)
     
-    # Ưu tiên giữ lại dòng có Số hóa đơn hoặc có tiền thanh toán lớn hơn
     df_res['has_hd'] = df_res['Số hóa đơn'].fillna('').astype(str).str.strip().apply(lambda x: 1 if x and x not in ['0', 'nan', 'None'] else 0)
     df_res = df_res.sort_values(by=['has_hd', 'Giá trị xuất hóa đơn', 'Số tiền thanh toán cuối'], ascending=[True, True, True])
     df_res = df_res.drop_duplicates(subset=['temp_norm_key'], keep='last')
@@ -272,14 +270,12 @@ def load_cached_master():
 
     df_m = dong_bo_hoa_don(df_m)
     df_m = chuan_hoa_kieu_du_lieu(df_m)
-    # Tự động lọc trùng LSC khi tải dữ liệu
     df_m = xu_ly_loc_trung_lsc(df_m)
     return df_m[TAT_CA_COT]
 
 def save_master(df_to_save):
     df_clean = dong_bo_hoa_don(df_to_save.copy())
     df_clean = chuan_hoa_kieu_du_lieu(df_clean)
-    # Tự động lọc trùng LSC trước khi ghi file
     df_clean = xu_ly_loc_trung_lsc(df_clean)
     df_clean.to_excel(MASTER_FILE, index=False)
     load_cached_master.clear()
@@ -556,7 +552,7 @@ else:
     tabs = st.tabs(["📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
     tab_work = tabs[0]
 
-# TAB 1: BẢNG TÍNH WEB VỚI CHỮ TO 17PX & LỌC TRÙNG LSC TỰ ĐỘNG
+# TAB 1: BẢNG TÍNH WEB VỚI CHỮ TO 17PX & ĐỐI SOÁT CHUẨN NỢ GSM
 with tab_work:
     df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
@@ -568,9 +564,15 @@ with tab_work:
     kh_chua_hd_cnt = kh_total_cnt - kh_da_hd_cnt
     kh_chua_hd_amt = df_kh_total[df_kh_total['Số hóa đơn'].isna() | df_kh_total['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])]['KH thanh toán'].sum()
 
-    df_gsm_debt = df_hoanthanh[(df_hoanthanh['KH thanh toán'] > 0) & (df_hoanthanh['Phân loại KH'] == 'GSM Công nợ')]
-    gsm_debt_cnt = len(df_gsm_debt)
-    gsm_debt_amt = df_gsm_debt['KH thanh toán'].sum()
+    # CHUẨN HÓA GSM: CHỈ TÍNH LÀ NỢ KHI CHƯA XUẤT HÓA ĐƠN
+    df_gsm_all = df_hoanthanh[(df_hoanthanh['KH thanh toán'] > 0) & (df_hoanthanh['Phân loại KH'] == 'GSM Công nợ')]
+    gsm_total_cnt = len(df_gsm_all)
+    df_gsm_da_hd = df_gsm_all[df_gsm_all['Số hóa đơn'].notna() & (~df_gsm_all['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))]
+    df_gsm_chua_hd = df_gsm_all[df_gsm_all['Số hóa đơn'].isna() | df_gsm_all['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])]
+    
+    gsm_treo_no_cnt = len(df_gsm_chua_hd)
+    gsm_treo_no_amt = df_gsm_chua_hd['KH thanh toán'].sum()
+    gsm_da_hd_cnt = len(df_gsm_da_hd)
 
     df_bh_hang = df_hoanthanh[df_hoanthanh['BH hãng thanh toán'] > 0]
     bh_chua_duyet_cnt = df_bh_hang[df_bh_hang['Phê duyệt bảo hành'].isin(['Chờ duyệt', None, 'nan', ''])].shape[0]
@@ -587,7 +589,7 @@ with tab_work:
 
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("📌 KH Thanh Toán (Đã xong)", f"{kh_total_cnt:,} lệnh", f"Đã xuất HĐ: {kh_da_hd_cnt}/{kh_total_cnt}")
-    k2.metric("🚕 GSM Công Nợ (Đã xong)", f"{gsm_debt_cnt:,} lệnh nợ", f"{gsm_debt_amt:,.0f} đ")
+    k2.metric("🚕 GSM Treo Nợ (Chưa HĐ)", f"{gsm_treo_no_cnt:,} lệnh nợ", f"{gsm_treo_no_amt:,.0f} đ (Đã XHĐ: {gsm_da_hd_cnt})")
     k3.metric("🛡️ Bảo Hành Hãng (W)", f"{bh_total_cnt:,} lệnh", f"Chưa duyệt: {bh_chua_duyet_cnt}/{bh_total_cnt}")
     k4.metric("🏢 Bảo Hiểm (Insurance)", f"{bh_total_all_cnt:,} lệnh", f"Chưa xuất HĐ: {bh_chua_hd_cnt}/{bh_total_all_cnt}")
     k5.metric("⏳ Đang Làm / Báo Giá", f"{chua_hoan_thanh_cnt:,} lệnh", "Chờ hoàn thành")
@@ -622,7 +624,7 @@ with tab_work:
         df_show = df_kh_total.copy()
         sheet_file_name = "1_KH_Thanh_Toan"
     elif luong_data == "2. GSM Công Nợ (Chỉ các lệnh thuộc file công nợ)":
-        df_show = df_gsm_debt.copy()
+        df_show = df_gsm_all.copy()
         sheet_file_name = "2_GSM_Cong_No"
     elif luong_data == "3. Bảo Hành Hãng (W) - Phê duyệt":
         df_show = df_bh_hang.copy()
@@ -650,7 +652,6 @@ with tab_work:
         df_show = df_master.copy()
         sheet_file_name = "Tong_Hop_Toan_Bo"
 
-    # LỌC TRÙNG LỆNH NGAY TRÊN BẢNG HIỂN THỊ
     df_show = xu_ly_loc_trung_lsc(df_show)
 
     # 2. KHUNG LỌC TRỰC TIẾP RIÊNG TỪNG TIÊU ĐỀ CỘT
@@ -803,7 +804,7 @@ with tab_work:
         disabled=(not is_admin),
         num_rows="fixed",
         hide_index=True,
-        key=f"data_editor_table_v6_{luong_data}"
+        key=f"data_editor_table_v7_{luong_data}"
     )
 
     st.markdown("---")
@@ -893,8 +894,6 @@ if is_admin:
                 df_inc.loc[(df_inc['BH hãng thanh toán'] > 0) & (df_inc['Phê duyệt bảo hành'].isna()), 'Phê duyệt bảo hành'] = "Chờ duyệt"
                 df_inc = dong_bo_hoa_don(df_inc)
                 df_inc = chuan_hoa_kieu_du_lieu(df_inc)
-                
-                # LỌC TRÙNG NỘI BỘ TRONG CHÍNH FILE NẠP
                 df_inc = xu_ly_loc_trung_lsc(df_inc)
 
                 p_bar_dms = st.progress(0)
@@ -1109,13 +1108,13 @@ if is_admin:
                 txt_bh.empty()
                 st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Đã cập nhật phê duyệt cho **{bh_updated}** lệnh bảo hành.")
 
-    # TAB 5: QUẢN LÝ CÔNG NỢ GSM
+    # TAB 5: QUẢN LÝ CÔNG NỢ GSM (LỌC CHẶT CHẼ TRÁNH NHẦM KHÁCH LẺ)
     with tab_gsm_import:
-        st.subheader("🚕 Quản Lý Danh Sách Công NỢ GSM (Linh Hoạt Cả 2 Cách)")
+        st.subheader("🚕 Quản Lý Danh Sách Công NỢ GSM (Chỉ Dành Cho Xe GSM)")
         
         col_t1, col_t2 = st.columns([3, 2])
         with col_t1:
-            st.info("💡 **Ghi chú:** Các lệnh trong danh sách này sẽ được chuyển sang 'GSM Công nợ' và KHÔNG bị tính vào cảnh báo nợ HĐ của khách hàng lẻ.")
+            st.info("💡 **Ghi chú:** Các lệnh GSM đã xuất hóa đơn sẽ tự động được gạch nợ. Chỉ lệnh chưa có HĐ mới tính là treo nợ.")
         with col_t2:
             file_mau_bytes = tao_file_mau_gsm()
             st.download_button(
@@ -1167,12 +1166,12 @@ if is_admin:
                     st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Đã chuyển **{gsm_cnt}** lệnh vào danh sách GSM Công Nợ thành công.")
 
         with c_tab_tay:
-            st.write("##### Nhập nhanh danh sách Số LSC (hoặc Biển số) cần chuyển sang công nợ GSM:")
-            nhap_tay_txt = st.text_area("Danh sách mã lệnh / biển số:", height=130, placeholder="C23401-WO-26-08-24-027\nC23401-WO-26-08-30-001\n81G00056")
+            st.write("##### Nhập danh sách Số LSC (hoặc Biển số) để chuyển đổi qua lại giữa GSM và Khách lẻ:")
+            nhap_tay_txt = st.text_area("Danh sách mã lệnh / biển số:", height=130, placeholder="C23401-WO-260908-0027\n81A71620\n81H06401")
             
             t_col1, t_col2 = st.columns(2)
             with t_col1:
-                if st.button("➕ Thêm Các Lệnh Này Vào Công NỢ GSM", type="primary", use_container_width=True):
+                if st.button("➕ Thêm Vào Công NỢ GSM", type="primary", use_container_width=True):
                     danh_sach_nhap = [clean_lsc_giu_gach(x) for x in nhap_tay_txt.split('\n') if clean_lsc_giu_gach(x)]
                     if danh_sach_nhap:
                         exact_map = {clean_lsc_giu_gach(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
@@ -1188,12 +1187,12 @@ if is_admin:
                                 added_cnt += 1
                                 
                         save_master(df_master)
-                        st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Đã thêm **{added_cnt}** lệnh vào diện công nợ GSM.")
+                        st.success(f"✅ Đã thêm **{added_cnt}** lệnh vào diện công nợ GSM.")
                     else:
                         st.warning("Vui lòng nhập ít nhất 1 mã lệnh hoặc biển số!")
 
             with t_col2:
-                if st.button("🔄 Đưa Các Lệnh Này Quay Lại KH Thông Thường", use_container_width=True):
+                if st.button("🔄 ĐƯA VỀ KHÁCH LẺ (GỠ KHỎI GSM)", use_container_width=True):
                     danh_sach_nhap = [clean_lsc_giu_gach(x) for x in nhap_tay_txt.split('\n') if clean_lsc_giu_gach(x)]
                     if danh_sach_nhap:
                         exact_map = {clean_lsc_giu_gach(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
@@ -1209,7 +1208,8 @@ if is_admin:
                                 removed_cnt += 1
                                 
                         save_master(df_master)
-                        st.info(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Đã chuyển **{removed_cnt}** lệnh quay lại KH Thanh Toán thông thường.")
+                        st.info(f"✅ ĐÃ GỠ THÀNH CÔNG! Đã chuyển **{removed_cnt}** lệnh quay lại KH Thông Thường.")
+                        st.rerun()
 
         st.markdown("---")
         st.write("##### 📋 Danh sách các lệnh đang nằm trong Công Nợ GSM hiện tại:")
