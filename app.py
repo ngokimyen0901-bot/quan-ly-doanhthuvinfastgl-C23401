@@ -12,7 +12,7 @@ from openpyxl.utils import get_column_letter
 
 st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗", layout="wide")
 
-# CSS TĂNG KÍCH THƯỚC CHỮ BẢNG TÍNH VÀ CẢI THIỆN ĐỘ RÕ NÉT
+# CSS TĂNG CỠ CHỮ TO 17PX VÀ DÃN RỘNG HÀNG BẢNG TÍNH
 st.markdown("""
 
 """, unsafe_allow_html=True)
@@ -538,7 +538,7 @@ else:
     tabs = st.tabs(["📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
     tab_work = tabs[0]
 
-# TAB 1: BẢNG TÍNH WEB VỚI BỘ LỌC VÀ MỞ KHÓA SORT TẤT CẢ CỘT
+# TAB 1: BẢNG TÍNH WEB VỚI CHỮ TO 17PX & MỞ KHÓA SORT TẤT CẢ CỘT
 with tab_work:
     df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
@@ -636,7 +636,6 @@ with tab_work:
     st.markdown("##### 📌 Lọc Chi Tiết Theo Tiêu Đề Cột:")
     f_box1, f_box2, f_box3 = st.columns(3)
 
-    # Trích xuất ngày đóng để lọc
     df_show['ngay_dong_lsc_loc'] = df_show['Thời gian đóng LSC'].astype(str).str.extract(r'(\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b)')[0].fillna('')
 
     with f_box1:
@@ -734,7 +733,7 @@ with tab_work:
 
     is_admin = st.session_state.logged_in
 
-    # ĐÃ GỠ BỎ TOÀN BỘ pinned=True ĐỂ TẤT CẢ CÁC CỘT ĐỀU SORT ĐƯỢC THOẢI MÁI
+    # ĐÃ GỠ BỎ TOÀN BỘ pinned=True ĐỂ TẤT CẢ CÁC CỘT ĐỀU SORT ĐƯỢC THOẢI MÁI TRÊN ĐẦU CỘT
     col_cfg = {
         "STT": st.column_config.NumberColumn("STT", disabled=True, width="small"),
         "Số lệnh sửa chữa": st.column_config.TextColumn("Số LSC", disabled=True),
@@ -779,12 +778,12 @@ with tab_work:
     edited_df = st.data_editor(
         df_render,
         use_container_width=True,
-        height=550,
+        height=560,
         column_config=col_cfg,
         disabled=(not is_admin),
         num_rows="fixed",
         hide_index=True,
-        key=f"data_editor_table_v4_{luong_data}"
+        key=f"data_editor_table_v5_{luong_data}"
     )
 
     st.markdown("---")
@@ -902,7 +901,7 @@ if is_admin:
                 txt_dms.empty()
                 st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Thêm **{len(new_records)}** lệnh mới và cập nhật trạng thái cho **{status_updated_cnt}** lệnh.")
 
-    # TAB 3: KHỚP HÓA ĐƠN (ĐÃ FIX TRIỆT ĐỂ LỖI GỘP NHIỀU HÓA ĐƠN)
+    # TAB 3: KHỚP HÓA ĐƠN (CHUẨN HÓA VÀ GỘP MỌI HÓA ĐƠN CÙNG LỆNH)
     with tab_inv:
         st.subheader("Khớp file Hóa Đơn kế toán với Hệ Thống")
         st.caption("Tự động gộp tất cả hóa đơn cùng 1 LSC: nối số HĐ bằng dấu phẩy và cộng dồn tiền chính xác 100%.")
@@ -917,14 +916,14 @@ if is_admin:
                         return i
                 return default
 
-            idx_lsc = find_idx(['ro hãng', 'ro_hãng'], 0)
+            idx_lsc = find_idx(['ro hãng', 'ro_hãng', 'số ro'], 0)
             idx_shd = find_idx(['hóa đơn đt', 'số hóa đơn đt', 'số hóa đơn'], 1 if len(col_labels) > 1 else 0)
             idx_nhd = find_idx(['ngày', 'chứng từ - ngày'], 0)
             idx_gt  = find_idx(['tổng thanh toán', 'thanh toán', 'thành tiền'], 0)
 
             c1, c2, c3, c4 = st.columns(4)
             opt_indices = list(range(len(col_labels)))
-            sel_lsc_idx = c1.selectbox("📌 Cột Số Lệnh SC:", opt_indices, format_func=lambda i: col_labels[i], index=idx_lsc)
+            sel_lsc_idx = c1.selectbox("📌 Cột Số Lệnh SC / RO:", opt_indices, format_func=lambda i: col_labels[i], index=idx_lsc)
             sel_shd_idx = c2.selectbox("🧾 Cột Số Hóa Đơn:", opt_indices, format_func=lambda i: col_labels[i], index=idx_shd)
             
             opt_with_none = [-1] + opt_indices
@@ -939,7 +938,7 @@ if is_admin:
 
                 norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 
-                # GOM NHÓM THEO NORM KEY ĐỂ DÙ VIẾT DƯ THIẾU DẤU GẠCH VẪN GỘP CHUNG 100%
+                # GOM NHÓM THEO NORM KEY
                 inv_aggregated = {}
                 total_inv_rows = len(df_inv)
 
@@ -1009,7 +1008,7 @@ if is_admin:
                 save_master(df_master)
                 p_bar_inv.progress(100)
                 txt_inv.empty()
-                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa (Bao gồm các lệnh nhiều hóa đơn).")
+                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa (Đã xử lý đầy đủ các lệnh nhiều hóa đơn).")
 
     # TAB 4: IMPORT BẢO HÀNH
     with tab_bh_import:
