@@ -27,7 +27,6 @@ COT_DINH_DANH = [
     'Thời gian đóng LSC', 'Biển số', 'Xe GSM'
 ]
 
-# Đầy đủ tất cả các cột chi tiết tiền từ DMS gốc
 COT_TIEN = [
     'Tổng tiền công', 'Tổng tiền phụ tùng', 'Tổng trước chiết khấu',
     'Chiết khấu đại lý', 'Tổng chiết khấu', 'Tổng sau chiết khấu',
@@ -157,7 +156,6 @@ def doc_file_so_511(file_obj):
     else:
         df = pd.read_excel(file_obj, header=None)
     
-    # Tìm dòng chứa 'Ngày C.từ' hoặc 'Số hóa đơn' hoặc 'Phát sinh' (thường là dòng 8 hoặc 9)
     h_idx = -1
     for idx, r in df.head(15).iterrows():
         r_txt = " ".join([str(v).lower() for v in r.values if pd.notna(v)])
@@ -564,7 +562,7 @@ if st.session_state.logged_in:
         "📥 2. Nạp Dữ Liệu DMS Mới",
         "🧾 3. Khớp File Hóa Đơn Kế Toán",
         "🛡️ 4. Import Phê Duyệt Bảo Hành (Excel)",
-        "🚕 5. Quản Lý Công Nợ GSM (Import & Nhập Tay)",
+        "🚕 5. Quản Lý Công NỢ GSM (Import & Nhập Tay)",
         "🔍 6. Đối Soát Upload Lên Cyber"
     ])
     tab_dash = tabs[0]
@@ -579,7 +577,7 @@ else:
     tab_dash = tabs[0]
     tab_work = tabs[1]
 
-# TAB 0: DASHBOARD LẤY DỮ LIỆU TỪ BẢNG KÊ (CHỈ LẤY 01.S, LOẠI BỎ 01.B) & ĐỐI SOÁT TK 511 (5112 + 5114)
+# TAB 0: DASHBOARD LẤY DỮ LIỆU TỪ BẢNG KÊ (CHỈ LẤY 01.S) & ĐỐI SOÁT TK 511 (5112 + 5114)
 with tab_dash:
     st.subheader("📈 Phân Tích Doanh Thu Xuất HĐ (Chỉ tính 01.S) & Đối Soát TK 511 (5112 + 5114)")
     st.caption("Tự động loại bỏ mã 01.B (Phụ kiện bán lẻ), cộng lũy kế từng ngày và double-check với Sổ cái 511.")
@@ -634,63 +632,78 @@ with tab_dash:
                     st.rerun()
 
     with col_up_511:
-        with st.expander("📂 2. Nạp Sổ Cái Chi Tiết TK 511 (5112 & 5114)", expanded=(len(df_511_db) == 0)):
-            st.caption("Tải file Sổ chi tiết tài khoản (Excel) - Hệ thống tự động nhận diện cột Ngày, Diễn giải, Phát sinh Có và Số R/O.")
-            up_511_file = st.file_uploader("Tải file Sổ Chi Tiết TK 511 (Excel/CSV)", type=['xlsx', 'xls', 'csv'], key='up_511_key')
-            if up_511_file:
-                df_raw_511, col_names_511 = doc_file_so_511(up_511_file)
-                st.write("🔎 Xem trước bảng TK 511 vừa nạp:")
-                st.dataframe(df_raw_511.head(3), use_container_width=True)
+        with st.expander("📂 2. Nạp Sổ Chi Tiết TK 511 (Tách riêng 2 file 5112 & 5114)", expanded=(len(df_511_db) == 0)):
+            st.caption("Tải riêng biệt từng file Excel để hệ thống tự động bóc tách doanh thu dịch vụ và bảo hành:")
+            
+            c_f1, c_f2 = st.columns(2)
+            with c_f1:
+                up_5112_file = st.file_uploader("📄 1. File Sổ TK 5112 (Dịch vụ):", type=['xlsx', 'xls', 'csv'], key='up_5112_k')
+            with c_f2:
+                up_5114_file = st.file_uploader("🛡️ 2. File Sổ TK 5114 (Bảo hành):", type=['xlsx', 'xls', 'csv'], key='up_5114_k')
 
-                def tim_index_511(kws, def_idx=0):
-                    for i, c in enumerate(col_names_511):
-                        if any(k in c.lower() for k in kws):
-                            return i
-                    return def_idx
-
-                idx_ngay = tim_index_511(['ngày c.từ', 'ngày ct', 'ngày c.t'], 4)
-                idx_shd  = tim_index_511(['số hóa đơn', 'số hđ'], 5)
-                idx_dg   = tim_index_511(['diễn giải'], 11)
-                idx_co   = tim_index_511(['có', 'phát sinh có', 'ps có'], 15)
-                idx_ro   = tim_index_511(['số r/o', 'ro', 'lệnh'], 17)
-
-                st.info(f"💡 Tự động nhận diện: Cột Ngày (`{col_names_511[idx_ngay]}`), Tiền Có (`{col_names_511[idx_co]}`), Diễn giải (`{col_names_511[idx_dg]}`), Số R/O (`{col_names_511[idx_ro]}`)")
-
-                if st.button("🚀 XÁC NHẬN NẠP DỮ LIỆU TK 511", type="primary", use_container_width=True):
+            if up_5112_file or up_5114_file:
+                if st.button("🚀 XÁC NHẬN NẠP CẢ 2 FILE VÀO HỆ THỐNG", type="primary", use_container_width=True):
                     rows_511 = []
-                    b_count_511 = 0
-                    for _, r in df_raw_511.iterrows():
-                        ro_val = str(r.iloc[idx_ro]).strip() if idx_ro < len(r) and pd.notna(r.iloc[idx_ro]) else ""
-                        
-                        # BỎ CÁC DÒNG RO ĐẦU 01.B (PHỤ KIỆN BÁN LẺ)
-                        if ro_val.upper().startswith('01.B'):
-                            b_count_511 += 1
-                            continue
+                    b_count_total = 0
 
-                        ngay_str = clean_ngay_chuan(r.iloc[idx_ngay]) if idx_ngay < len(r) and pd.notna(r.iloc[idx_ngay]) else ""
-                        dg_val = str(r.iloc[idx_dg]).strip() if idx_dg < len(r) and pd.notna(r.iloc[idx_dg]) else ""
-                        
-                        raw_tien = str(r.iloc[idx_co]).replace(',', '').replace(' ', '') if idx_co < len(r) and pd.notna(r.iloc[idx_co]) else "0"
-                        try:
-                            tien = float(raw_tien)
-                        except ValueError:
-                            tien = 0.0
+                    def xu_ly_file_511(f_obj, loai_tk_default):
+                        df_raw, col_names = doc_file_so_511(f_obj)
+                        def tim_index(kws, def_idx=0):
+                            for i, c in enumerate(col_names):
+                                if any(k in c.lower() for k in kws):
+                                    return i
+                            return def_idx
 
-                        # Nhận diện: Nếu diễn giải chứa "bảo hành" -> TK 5114; còn lại -> TK 5112
-                        loai_tk = "5114" if any(w in dg_val.lower() for w in ['bảo hành', 'bh', 'đình vũ']) else "5112"
+                        idx_ngay = tim_index(['ngày c.từ', 'ngày ct', 'ngày c.t'], 4)
+                        idx_dg   = tim_index(['diễn giải'], 11)
+                        idx_co   = tim_index(['có', 'phát sinh có', 'ps có'], 15)
+                        idx_ro   = tim_index(['số r/o', 'ro', 'lệnh'], 17)
 
-                        if ngay_str and tien != 0 and 'số dư' not in dg_val.lower():
-                            rows_511.append({
-                                'Ngày': ngay_str,
-                                'Số R/O': ro_val,
-                                'Loại TK': loai_tk,
-                                'Số tiền': tien,
-                                'Diễn giải': dg_val
-                            })
+                        sub_rows = []
+                        b_cnt = 0
+                        for _, r in df_raw.iterrows():
+                            ro_val = str(r.iloc[idx_ro]).strip() if idx_ro < len(r) and pd.notna(r.iloc[idx_ro]) else ""
+                            # LOẠI BỎ ĐẦU 01.B (PHỤ KIỆN BÁN LẺ)
+                            if ro_val.upper().startswith('01.B'):
+                                b_cnt += 1
+                                continue
+
+                            ngay_str = clean_ngay_chuan(r.iloc[idx_ngay]) if idx_ngay < len(r) and pd.notna(r.iloc[idx_ngay]) else ""
+                            dg_val = str(r.iloc[idx_dg]).strip() if idx_dg < len(r) and pd.notna(r.iloc[idx_dg]) else ""
+                            raw_tien = str(r.iloc[idx_co]).replace(',', '').replace(' ', '') if idx_co < len(r) and pd.notna(r.iloc[idx_co]) else "0"
+                            try:
+                                tien = float(raw_tien)
+                            except ValueError:
+                                tien = 0.0
+
+                            if ngay_str and tien != 0 and 'số dư' not in dg_val.lower():
+                                sub_rows.append({
+                                    'Ngày': ngay_str,
+                                    'Số R/O': ro_val,
+                                    'Loại TK': loai_tk_default,
+                                    'Số tiền': tien,
+                                    'Diễn giải': dg_val
+                                })
+                        return sub_rows, b_cnt
+
+                    cnt_5112 = 0
+                    cnt_5114 = 0
+
+                    if up_5112_file:
+                        r2, b2 = xu_ly_file_511(up_5112_file, "5112")
+                        rows_511.extend(r2)
+                        cnt_5112 = len(r2)
+                        b_count_total += b2
+
+                    if up_5114_file:
+                        r4, b4 = xu_ly_file_511(up_5114_file, "5114")
+                        rows_511.extend(r4)
+                        cnt_5114 = len(r4)
+                        b_count_total += b4
 
                     df_new_511 = pd.DataFrame(rows_511)
                     save_511_db(df_new_511)
-                    st.success(f"✅ Đã nạp thành công **{len(df_new_511)}** dòng doanh thu vào TK 511 (Đã loại bỏ **{b_count_511}** dòng phụ kiện 01.B)!")
+                    st.success(f"✅ ĐÃ NẠP THÀNH CÔNG: **{cnt_5112}** dòng TK 5112 | **{cnt_5114}** dòng TK 5114 (Đã tự động loại bỏ **{b_count_total}** dòng phụ kiện 01.B)!")
                     st.rerun()
 
     # XỬ LÝ DASHBOARD HIỂN THỊ THÁNG HIỆN TẠI VÀ DOUBLE CHECK
@@ -712,7 +725,6 @@ with tab_dash:
                 df_511_clean['nam'] = df_511_clean['dt_parsed'].dt.year
                 df_511_clean['thang'] = df_511_clean['dt_parsed'].dt.month
 
-            # Bộ lọc Năm / Tháng - MẶC ĐỊNH LÀ THÁNG HIỆN TẠI (Tháng 09/2026)
             col_sel1, col_sel2 = st.columns([2, 4])
             with col_sel1:
                 years_avail = sorted(df_dash_data['nam'].unique(), reverse=True)
@@ -723,12 +735,10 @@ with tab_dash:
                 default_m_idx = months_avail.index(curr_m) if curr_m in months_avail else (months_avail.index(9) if 9 in months_avail else len(months_avail)-1)
                 sel_month = st.selectbox("📆 Chọn Tháng Báo Cáo:", months_avail, index=default_m_idx, format_func=lambda m: f"Tháng {m:02d}", key='dash_mth')
 
-            # Lọc dữ liệu Hóa Đơn trong tháng
             df_month = df_dash_data[(df_dash_data['nam'] == sel_year) & (df_dash_data['thang'] == sel_month)].copy()
             tong_tien_hd = df_month['Giá trị xuất hóa đơn'].sum()
             tong_so_hd = len(df_month)
 
-            # Lọc dữ liệu TK 511 trong tháng
             tien_5112 = 0.0
             tien_5114 = 0.0
             if len(df_511_clean) > 0:
@@ -739,7 +749,6 @@ with tab_dash:
             tong_511 = tien_5112 + tien_5114
             chenh_lech = tong_tien_hd - tong_511
 
-            # KHUNG KPI DOUBLE CHECK
             st.markdown("---")
             m1, m2, m3, m4 = st.columns(4)
             m1.metric(f"🧾 Tổng Xuất HĐ Dịch Vụ (01.S)", f"{tong_tien_hd:,.0f} đ", f"{tong_so_hd:,} hóa đơn")
@@ -754,7 +763,6 @@ with tab_dash:
             else:
                 m4.metric("🔍 Double Check (HĐ vs 511)", "Chưa nạp Sổ 511", "Chờ file đối soát")
 
-            # BẢNG TỔNG HỢP THEO NGÀY CÓ CỘNG LŨY KẾ & DOUBLE CHECK
             df_month['ngay_num'] = df_month['dt_parsed'].dt.day
             df_month['ngay_str'] = df_month['dt_parsed'].dt.strftime('%d/%m')
 
@@ -763,10 +771,8 @@ with tab_dash:
                 So_Luong_HD=('Số hóa đơn', 'count')
             ).reset_index().sort_values('ngay_num')
 
-            # TÍNH CỘNG LŨY KẾ TỪNG NGÀY
             df_daily['Luy_Ke_HD'] = df_daily['Tong_Tien'].cumsum()
 
-            # GHÉP DỮ LIỆU TK 511 THEO TỪNG NGÀY ĐỂ DOUBLE CHECK NẾU CÓ FILE
             if len(df_511_clean) > 0:
                 df_511_m['ngay_num'] = df_511_m['dt_parsed'].dt.day
                 df_511_daily = df_511_m.groupby('ngay_num')['Số tiền'].sum().reset_index().rename(columns={'Số tiền': 'Tien_511'})
