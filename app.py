@@ -12,6 +12,11 @@ from openpyxl.utils import get_column_letter
 
 st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗", layout="wide")
 
+# CSS TĂNG KÍCH THƯỚC CHỮ BẢNG TÍNH VÀ CẢI THIỆN ĐỘ RÕ NÉT
+st.markdown("""
+
+""", unsafe_allow_html=True)
+
 MASTER_FILE = "master_database.xlsx"
 SECRET_KEY_AUTH = "VinFast_GiaLai_Secret_Key_2026"
 
@@ -533,7 +538,7 @@ else:
     tabs = st.tabs(["📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
     tab_work = tabs[0]
 
-# TAB 1: BẢNG TÍNH WEB VỚI BỘ LỌC TRỰC TIẾP TỪNG CỘT & MỞ KHÓA SORT TẤT CẢ CÁC CỘT
+# TAB 1: BẢNG TÍNH WEB VỚI BỘ LỌC VÀ MỞ KHÓA SORT TẤT CẢ CỘT
 with tab_work:
     df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
@@ -593,7 +598,7 @@ with tab_work:
     with f_col2:
         loc_canh_bao_hd = st.selectbox("⚡ Lọc trạng thái HĐ:", ["Tất cả", "Chỉ xe CHƯA có HĐ", "Đã có hóa đơn"])
     with f_col3:
-        tim_kiem_tu_do = st.text_input("🔍 Tìm kiếm nhanh (Biển số / LSC / Tên bất kỳ):", "", placeholder="VD: 81A13363, C23401...")
+        tim_kiem_tu_do = st.text_input("🔍 Tìm kiếm nhanh (Biển số / LSC / Tên bất kỳ):", "", placeholder="VD: 81A13363, C23401-WO-260909-0014...")
 
     if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
         df_show = df_kh_total.copy()
@@ -627,16 +632,16 @@ with tab_work:
         df_show = df_master.copy()
         sheet_file_name = "Tong_Hop_Toan_Bo"
 
-    # Lấy chuỗi Ngày (DD/MM/YYYY) để tạo bộ lọc chọn ngày
-    df_show['ngay_dong_lsc'] = df_show['Thời gian đóng LSC'].astype(str).str.extract(r'(\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b)')[0].fillna('')
-
     # 2. KHUNG LỌC TRỰC TIẾP RIÊNG TỪNG TIÊU ĐỀ CỘT
     st.markdown("##### 📌 Lọc Chi Tiết Theo Tiêu Đề Cột:")
     f_box1, f_box2, f_box3 = st.columns(3)
 
+    # Trích xuất ngày đóng để lọc
+    df_show['ngay_dong_lsc_loc'] = df_show['Thời gian đóng LSC'].astype(str).str.extract(r'(\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b)')[0].fillna('')
+
     with f_box1:
-        list_all_days = sorted([x for x in df_show['ngay_dong_lsc'].unique() if x], reverse=True)
-        sel_ngay_dong = st.multiselect("📅 Lọc Ngày đóng LSC:", options=list_all_days, default=[], placeholder="Chọn ngày đóng (VD: 2026/09/03)...")
+        list_all_days = sorted([x for x in df_show['ngay_dong_lsc_loc'].unique() if x], reverse=True)
+        sel_ngay_dong = st.multiselect("📅 Lọc Ngày đóng LSC:", options=list_all_days, default=[], placeholder="Chọn ngày đóng (VD: 2026/09/09)...")
 
     with f_box2:
         list_cvdv = sorted([x for x in df_show['Cố vấn dịch vụ'].dropna().unique() if str(x).strip()])
@@ -654,9 +659,11 @@ with tab_work:
 
     if tim_kiem_tu_do:
         kw = str(tim_kiem_tu_do).strip()
+        kw_norm = norm_lsc_key(kw)
         mask = (
             df_show['Biển số'].astype(str).str.contains(kw, case=False, na=False) |
             df_show['Số lệnh sửa chữa'].astype(str).str.contains(kw, case=False, na=False) |
+            df_show['Số lệnh sửa chữa'].apply(norm_lsc_key).str.contains(kw_norm, case=False, na=False) |
             df_show['Tên khách hàng'].astype(str).str.contains(kw, case=False, na=False) |
             df_show['Thời gian đóng LSC'].astype(str).str.contains(kw, case=False, na=False) |
             df_show['Số hóa đơn'].astype(str).str.contains(kw, case=False, na=False)
@@ -664,7 +671,7 @@ with tab_work:
         df_show = df_show[mask]
 
     if sel_ngay_dong:
-        df_show = df_show[df_show['ngay_dong_lsc'].isin(sel_ngay_dong)]
+        df_show = df_show[df_show['ngay_dong_lsc_loc'].isin(sel_ngay_dong)]
 
     if sel_cvdv:
         df_show = df_show[df_show['Cố vấn dịch vụ'].isin(sel_cvdv)]
@@ -672,7 +679,7 @@ with tab_work:
     if sel_trang_thai:
         df_show = df_show[df_show['Trạng thái'].isin(sel_trang_thai)]
 
-    df_show = df_show.drop(columns=['ngay_dong_lsc'])
+    df_show = df_show.drop(columns=['ngay_dong_lsc_loc'])
 
     # 3. TÙY BIẾN ẨN / HIỆN CỘT
     tat_ca_cot_bang = [
@@ -769,7 +776,6 @@ with tab_work:
     else:
         st.caption("💡 **Mẹo:** Bấm vào tiêu đề bất kỳ cột nào để Sort trực tiếp. Khi nhập tay, có thể bấm **Ctrl + Z** để hoàn tác.")
 
-    # Dùng timestamp để làm mới hoàn toàn session state của bảng khi đổi luồng hoặc lọc
     edited_df = st.data_editor(
         df_render,
         use_container_width=True,
@@ -778,7 +784,7 @@ with tab_work:
         disabled=(not is_admin),
         num_rows="fixed",
         hide_index=True,
-        key=f"data_editor_table_v3_{luong_data}"
+        key=f"data_editor_table_v4_{luong_data}"
     )
 
     st.markdown("---")
@@ -896,9 +902,10 @@ if is_admin:
                 txt_dms.empty()
                 st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Thêm **{len(new_records)}** lệnh mới và cập nhật trạng thái cho **{status_updated_cnt}** lệnh.")
 
-    # TAB 3: KHỚP HÓA ĐƠN
+    # TAB 3: KHỚP HÓA ĐƠN (ĐÃ FIX TRIỆT ĐỂ LỖI GỘP NHIỀU HÓA ĐƠN)
     with tab_inv:
         st.subheader("Khớp file Hóa Đơn kế toán với Hệ Thống")
+        st.caption("Tự động gộp tất cả hóa đơn cùng 1 LSC: nối số HĐ bằng dấu phẩy và cộng dồn tiền chính xác 100%.")
         up_inv = st.file_uploader("Tải file Bảng Kê Hóa Đơn", type=['csv', 'xlsx'], key='up_inv_tab')
 
         if up_inv:
@@ -927,18 +934,18 @@ if is_admin:
             if st.button("🚀 BẮT ĐẦU KHỚP HÓA ĐƠN", type="primary", use_container_width=True):
                 p_bar_inv = st.progress(0)
                 txt_inv = st.empty()
-                txt_inv.write("⏳ Đang tổng hợp và gom các hóa đơn theo LSC... (15%)")
+                txt_inv.write("⏳ Đang chuẩn hóa và gom các hóa đơn theo LSC... (15%)")
                 p_bar_inv.progress(15)
 
-                exact_map = {clean_lsc_giu_gach(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 
+                # GOM NHÓM THEO NORM KEY ĐỂ DÙ VIẾT DƯ THIẾU DẤU GẠCH VẪN GỘP CHUNG 100%
                 inv_aggregated = {}
                 total_inv_rows = len(df_inv)
 
                 for r_idx in range(total_inv_rows):
                     raw_lsc = str(df_inv.iloc[r_idx, sel_lsc_idx])
-                    key_exact = clean_lsc_giu_gach(raw_lsc)
+                    key_norm = norm_lsc_key(raw_lsc)
 
                     shd_val = str(df_inv.iloc[r_idx, sel_shd_idx]).strip() if pd.notna(df_inv.iloc[r_idx, sel_shd_idx]) else ""
                     if shd_val.endswith('.0'): shd_val = shd_val[:-2]
@@ -954,29 +961,27 @@ if is_admin:
                         except ValueError:
                             gt_val = 0
 
-                    if not key_exact or len(key_exact) < 4:
+                    if not key_norm or len(key_norm) < 4:
                         continue
 
-                    if key_exact not in inv_aggregated:
-                        inv_aggregated[key_exact] = {
+                    if key_norm not in inv_aggregated:
+                        inv_aggregated[key_norm] = {
                             'so_hd': [shd_val] if shd_val and shd_val not in ['', 'nan', 'None'] else [],
                             'ngay_hd': [nhd_val] if nhd_val else [],
                             'tong_tien': gt_val
                         }
                     else:
-                        if shd_val and shd_val not in ['', 'nan', 'None'] and shd_val not in inv_aggregated[key_exact]['so_hd']:
-                            inv_aggregated[key_exact]['so_hd'].append(shd_val)
-                        if nhd_val and nhd_val not in inv_aggregated[key_exact]['ngay_hd']:
-                            inv_aggregated[key_exact]['ngay_hd'].append(nhd_val)
-                        inv_aggregated[key_exact]['tong_tien'] += gt_val
+                        if shd_val and shd_val not in ['', 'nan', 'None'] and shd_val not in inv_aggregated[key_norm]['so_hd']:
+                            inv_aggregated[key_norm]['so_hd'].append(shd_val)
+                        if nhd_val and nhd_val not in inv_aggregated[key_norm]['ngay_hd']:
+                            inv_aggregated[key_norm]['ngay_hd'].append(nhd_val)
+                        inv_aggregated[key_norm]['tong_tien'] += gt_val
 
                 matched_records = []
                 total_keys = len(inv_aggregated)
 
-                for k_i, (k_lsc, val_dict) in enumerate(inv_aggregated.items()):
-                    m_idx = exact_map.get(k_lsc)
-                    if m_idx is None:
-                        m_idx = norm_map.get(norm_lsc_key(k_lsc))
+                for k_i, (k_norm, val_dict) in enumerate(inv_aggregated.items()):
+                    m_idx = norm_map.get(k_norm)
 
                     if m_idx is not None:
                         if str(df_master.at[m_idx, 'Trạng thái']) == 'Đã hủy':
@@ -991,7 +996,7 @@ if is_admin:
                         df_master.at[m_idx, 'Giá trị xuất hóa đơn'] = gt_tong
 
                         matched_records.append({
-                            'Số LSC': k_lsc,
+                            'Số LSC': df_master.at[m_idx, 'Số lệnh sửa chữa'],
                             'Số Hóa Đơn': shd_str,
                             'Ngày HĐ': nhd_str,
                             'Giá Trị HĐ': f"{gt_tong:,.0f}" if gt_tong else "0"
@@ -1000,12 +1005,11 @@ if is_admin:
                     if k_i % 30 == 0:
                         pct = int(15 + (k_i / max(total_keys, 1)) * 75)
                         p_bar_inv.progress(pct)
-                        txt_inv.write(f"⏳ Đang ghi nhận: {k_i}/{total_keys} lệnh ({pct}%)")
 
                 save_master(df_master)
                 p_bar_inv.progress(100)
                 txt_inv.empty()
-                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa.")
+                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa (Bao gồm các lệnh nhiều hóa đơn).")
 
     # TAB 4: IMPORT BẢO HÀNH
     with tab_bh_import:
@@ -1035,19 +1039,16 @@ if is_admin:
                 txt_bh = st.empty()
                 txt_bh.write("⏳ Đang đối soát danh sách bảo hành...")
 
-                exact_map = {clean_lsc_giu_gach(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 
                 bh_updated = 0
                 total_bh_rows = len(df_bh_input)
 
                 for r_i, (_, r) in enumerate(df_bh_input.iterrows()):
-                    key_exact = clean_lsc_giu_gach(r[s_bh_lsc])
-                    if not key_exact:
+                    key_norm = norm_lsc_key(r[s_bh_lsc])
+                    if not key_norm:
                         continue
-                    m_idx = exact_map.get(key_exact)
-                    if m_idx is None:
-                        m_idx = norm_map.get(norm_lsc_key(key_exact))
+                    m_idx = norm_map.get(key_norm)
 
                     if m_idx is not None:
                         val_tt = str(r[s_bh_tt]).strip()
