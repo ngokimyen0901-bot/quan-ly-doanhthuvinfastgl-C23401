@@ -11,120 +11,112 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import plotly.express as px
 
-# --- CẤU HÌNH TRANG ---
-st.set_page_config(page_title="Dashboard VinFast C23401", page_icon="🚗", layout="wide")
+# --- 1. CẤU HÌNH TRANG & GIAO DIỆN ---
+st.set_page_config(page_title="Hệ Thống Quản Trị VinFast C23401", page_icon="🚗", layout="wide")
 
-# --- CSS CUSTOM (Tạo sự khác biệt hoàn toàn về thị giác) ---
+# CSS để biến giao diện thành Dashboard chuyên nghiệp
 st.markdown("""
-<style>
-    /* Tổng thể */
-    .main { background-color: #f0f2f6; }
-    .stApp { background: #f8f9fa; }
-    
-    /* Card trang trí */
-    .kpi-card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        text-align: center;
-        border-top: 5px solid #1f4e78;
-    }
-    .kpi-value { font-size: 30px; font-weight: bold; color: #1f4e78; margin: 10px 0; }
-    .kpi-label { font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
-    
-    /* Box cảnh báo */
-    .alert-box {
-        background: linear-gradient(90deg, #ff4b4b 0%, #ff7676 100%);
-        color: white;
-        padding: 20px;
-        border-radius: 12px;
-        margin-bottom: 25px;
-        box-shadow: 0 4px 15px rgba(255, 75, 75, 0.3);
-    }
-</style>
+    <style>
+    .main { background-color: #f8f9fa; }
+    .main-title { font-size: 32px; font-weight: bold; color: #1f4e78; text-align: center; margin-bottom: 25px; font-family: 'Segoe UI', sans-serif; }
+    .kpi-container { display: flex; justify-content: space-between; gap: 15px; margin-bottom: 25px; }
+    .kpi-box { flex: 1; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-top: 6px solid #1f4e78; text-align: center; }
+    .kpi-box h4 { margin: 0; font-size: 13px; color: #6c757d; text-transform: uppercase; }
+    .kpi-box h2 { margin: 10px 0; font-size: 30px; color: #1f4e78; font-weight: bold; }
+    .kpi-box p { margin: 0; font-size: 14px; font-weight: 600; }
+    .alert-banner { background: linear-gradient(90deg, #ff4b4b 0%, #ff7676 100%); color: white; padding: 15px; border-radius: 10px; margin-bottom: 25px; box-shadow: 0 4px 10px rgba(255,75,75,0.2); }
+    </style>
 """, unsafe_allow_html=True)
 
-# --- PHẦN LOGIC DỮ LIỆU (Giữ nguyên các hàm quan trọng của bạn) ---
-# [Để tiết kiệm không gian, tôi giả định các hàm clean_lsc, load_master... đã có sẵn bên trên]
-# (Nếu bạn copy đè, hãy đảm bảo các hàm xử lý dữ liệu ở bản cũ vẫn được giữ lại)
+# --- 2. HỆ THỐNG BIẾN & THAM SỐ ---
+MASTER_FILE = "master_database.xlsx"
+SECRET_KEY_AUTH = "VinFast_GiaLai_Secret_Key_2026"
+DANH_SACH_ADMIN = {"admin": "Vinfastgialai@2026##"}
 
-def load_data():
-    # Giả lập dữ liệu để demo nếu chưa có file
-    if not os.path.exists("master_database.xlsx"):
-        return pd.DataFrame(columns=['Số lệnh sửa chữa', 'Trạng thái', 'Cố vấn dịch vụ', 'Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán', 'Phân loại KH'])
-    return pd.read_excel("master_database.xlsx")
+COT_DINH_DANH = ['Số lệnh sửa chữa', 'Trạng thái', 'Cố vấn dịch vụ', 'Tên khách hàng', 'Thời gian đóng LSC', 'Biển số', 'Xe GSM']
+COT_TIEN = ['Tổng tiền công', 'Tổng tiền phụ tùng', 'Tổng trước chiết khấu', 'Chiết khấu đại lý', 'Tổng chiết khấu', 'Tổng sau chiết khấu', 'Tiền VAT', 'Tổng có VAT', 'Chiết khấu VinClub', 'Số tiền thanh toán cuối', 'Tiền đặt cọc', 'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán', 'Nội bộ thanh toán']
+TAT_CA_COT = COT_DINH_DANH + COT_TIEN + ['Phân loại KH', 'Phê duyệt bảo hành', 'Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn']
+TRANG_THAI_HOAN_THANH = ['Đã đóng', 'Sẵn sàng bàn giao']
 
-df = load_data()
+# --- 3. HÀM XỬ LÝ DỮ LIỆU & AUTH (GIỮ NGUYÊN LOGIC CỦA BẠN) ---
+def clean_lsc(val): return str(val).split('(')[0].strip() if pd.notna(val) else ""
+def norm_key(val): return re.sub(r'[^A-Z0-9]', '', clean_lsc(val).upper())
 
-# --- SIDEBAR: BỘ LỌC CHUYÊN NGHIỆP ---
+@st.cache_data(show_spinner=False)
+def load_master():
+    if not os.path.exists(MASTER_FILE):
+        pd.DataFrame(columns=TAT_CA_COT).to_excel(MASTER_FILE, index=False)
+    df = pd.read_excel(MASTER_FILE)
+    for c in COT_TIEN:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+    return df
+
+def save_master(df):
+    df.to_excel(MASTER_FILE, index=False)
+    load_master.clear()
+
+# --- 4. PHẦN ĐĂNG NHẬP SIDEBAR ---
+if "logged_in" not in st.session_state: st.session_state.logged_in = False
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/0/05/VinFast_logo.svg", width=150)
-    st.markdown("### 🛠 BỘ LỌC TÌM KIẾM")
-    luong_data = st.selectbox("Chọn luồng dữ liệu:", ["Tổng hợp", "KH Thanh toán", "Bảo hiểm", "Nợ GSM"])
-    search_box = st.text_input("🔍 Biển số hoặc Số LSC:")
-    st.divider()
-    st.info("Phiên bản Dashboard 4.0 - Tối ưu hóa trải nghiệm người dùng.")
+    if not st.session_state.logged_in:
+        u = st.text_input("Tài khoản:"); p = st.text_input("Mật khẩu:", type="password")
+        if st.button("Đăng Nhập"):
+            if u in DANH_SACH_ADMIN and DANH_SACH_ADMIN[u] == p:
+                st.session_state.logged_in = True; st.rerun()
+            else: st.error("Sai mật khẩu!")
+    else:
+        st.success(f"Chào, {u if 'u' in locals() else 'Admin'}")
+        if st.button("Đăng Xuất"): st.session_state.logged_in = False; st.rerun()
 
-# --- GIAO DIỆN CHÍNH ---
-st.title("🚀 Hệ Thống Quản Trị Dịch Vụ VinFast")
+# --- 5. TÍNH TOÁN DỮ LIỆU DASHBOARD ---
+df_master = load_master()
+df_ht = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
+kh_total_cnt = len(df_ht[(df_ht['KH thanh toán'] > 0) & (df_ht['Phân loại KH'] != 'GSM Công nợ')])
+gsm_debt_cnt = len(df_ht[df_ht['Phân loại KH'] == 'GSM Công nợ'])
+bh_total_cnt = len(df_ht[df_ht['BH hãng thanh toán'] > 0])
+bh_ins_cnt = len(df_ht[df_ht['BH thanh toán'] > 0])
+chua_xuat_hd = df_ht[(df_ht['Số hóa đơn'].isna()) | (df_ht['Số hóa đơn'].astype(str).isin(['', 'nan', '0']))]
 
-# 1. Dashboard Cards (KPIs)
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    st.markdown(f'<div class="kpi-card"><div class="kpi-label">Tổng Lệnh</div><div class="kpi-value">{len(df)}</div></div>', unsafe_allow_html=True)
-with c2:
-    st.markdown(f'<div class="kpi-card" style="border-top-color: #ff9800"><div class="kpi-label">Lệnh Nợ GSM</div><div class="kpi-value">{len(df[df["Phân loại KH"]=="GSM Công nợ"])}</div></div>', unsafe_allow_html=True)
-with c3:
-    st.markdown(f'<div class="kpi-card" style="border-top-color: #4caf50"><div class="kpi-label">Bảo Hiểm</div><div class="kpi-value">{len(df[df["BH thanh toán"]>0])}</div></div>', unsafe_allow_html=True)
-with c4:
-    st.markdown(f'<div class="kpi-card" style="border-top-color: #9c27b0"><div class="kpi-label">Doanh Thu</div><div class="kpi-value">{df["Số tiền thanh toán cuối"].sum():,.0f}</div></div>', unsafe_allow_html=True)
+# --- 6. HIỂN THỊ DASHBOARD TRỰC QUAN ---
+st.markdown('<div class="main-title">🚗 QUẢN TRỊ DỊCH VỤ & ĐỐI SOÁT VINFAST</div>', unsafe_allow_html=True)
 
-st.markdown("<br>", unsafe_allow_html=True)
-
-# 2. Cảnh báo (Alert Box)
-st.markdown("""
-<div class="alert-box">
-    <h4 style="margin:0">⚠️ CẢNH BÁO CHƯA XUẤT HÓA ĐƠN</h4>
-    <p style="margin:5px 0 0 0">Hiện có 156 lệnh đã hoàn thành nhưng chưa được khớp hóa đơn. Tổng giá trị cần đối soát: 310,398,273 VNĐ.</p>
-</div>
+# Hàng thẻ KPI (Màu sắc và bóng đổ chuyên nghiệp)
+st.markdown(f"""
+    <div class="kpi-container">
+        <div class="kpi-box" style="border-top-color: #007bff;">
+            <h4>KH THANH TOÁN</h4>
+            <h2>{kh_total_cnt}</h2>
+            <p style="color: #007bff;">Lệnh hoàn thành</p>
+        </div>
+        <div class="kpi-box" style="border-top-color: #ffc107;">
+            <h4>GSM CÔNG NỢ</h4>
+            <h2>{gsm_debt_cnt}</h2>
+            <p style="color: #ffc107;">Chờ thanh toán</p>
+        </div>
+        <div class="kpi-box" style="border-top-color: #17a2b8;">
+            <h4>BẢO HÀNH (W)</h4>
+            <h2>{bh_total_cnt}</h2>
+            <p style="color: #17a2b8;">Lệnh hãng</p>
+        </div>
+        <div class="kpi-box" style="border-top-color: #6f42c1;">
+            <h4>BẢO HIỂM</h4>
+            <h2>{bh_ins_cnt}</h2>
+            <p style="color: #6f42c1;">Insurance</p>
+        </div>
+        <div class="kpi-box" style="border-top-color: #dc3545;">
+            <h4>CHƯA XUẤT HĐ</h4>
+            <h2>{len(chua_xuat_hd)}</h2>
+            <p style="color: #dc3545;">Cần xử lý ngay</p>
+        </div>
+    </div>
 """, unsafe_allow_html=True)
 
-# 3. Biểu đồ trực quan (Điểm khác biệt lớn nhất)
-col_left, col_right = st.columns([1, 1])
-
-with col_left:
-    # Biểu đồ hiệu suất cố vấn
-    if not df.empty:
-        cvdv_counts = df['Cố vấn dịch vụ'].value_counts().reset_index()
-        fig_bar = px.bar(cvdv_counts.head(10), x='Cố vấn dịch vụ', y='count', 
-                         title="🔥 TOP 10 CỐ VẤN DỊCH VỤ NĂNG SUẤT NHẤT",
-                         color='count', color_continuous_scale='Blues')
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-with col_right:
-    # Biểu đồ cơ cấu doanh thu
-    if not df.empty:
-        source_data = pd.DataFrame({
-            'Nguồn': ['Khách Lẻ', 'Bảo Hiểm', 'Nội Bộ'],
-            'Giá Trị': [df['KH thanh toán'].sum(), df['BH thanh toán'].sum(), 10000000] # Ví dụ
-        })
-        fig_pie = px.pie(source_data, names='Nguồn', values='Giá Trị', hole=0.5,
-                         title="💰 TỶ TRỌNG NGUỒN THU CHÍNH")
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-# 4. Bảng dữ liệu (Rút gọn và chuyên nghiệp)
-st.subheader("📝 Danh Sách Chi Tiết")
-st.dataframe(
-    df,
-    column_config={
-        "Số tiền thanh toán cuối": st.column_config.NumberColumn("Số Tiền", format="%d VNĐ"),
-        "Trạng thái": st.column_config.SelectboxColumn("Trạng thái", options=["Đã đóng", "Chưa đóng"])
-    },
-    use_container_width=True,
-    hide_index=True
-)
-
-# Nút lưu nằm riêng biệt
-if st.button("💾 CẬP NHẬT DỮ LIỆU HỆ THỐNG", type="primary"):
-    st.success("Dữ liệu đã được lưu thành công!")
+# Banner Cảnh báo nổi bật
+if len(chua_xuat_hd) > 0:
+    st.markdown(f"""
+        <div class="alert-banner">
+            <b>⚠️ CẢNH BÁO:</b> Có {len(chua_xuat_hd)} lệnh đã đóng nhưng CHƯA XUẤT HÓA ĐƠN. 
+            Tổng tiền treo: {chua_xuat_hd['Số tiền thanh toán cuối'].sum():,.0f} VNĐ.
+        </div>
