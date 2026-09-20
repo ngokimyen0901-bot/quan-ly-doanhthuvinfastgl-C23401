@@ -329,7 +329,7 @@ def load_cached_master():
         if c in df_m.columns:
             df_m[c] = pd.to_numeric(clean_tien_series(df_m[c]), errors='coerce').fillna(0)
 
-    # ĐỐI CHIẾU CHUẨN XÁC VỚI FILE danh_sach_gsm.txt
+    # ĐỐI CHIẾU DANH SÁCH GSM TỪ FILE danh_sach_gsm.txt
     gsm_keys_set = doc_danh_sach_gsm_tu_file()
     if gsm_keys_set:
         df_m['Phân loại KH'] = df_m['Số lệnh sửa chữa'].apply(
@@ -561,7 +561,7 @@ with st.sidebar:
 
 # --- GIAO DIỆN CHÍNH ---
 st.title("🚗 Quản Trị Dịch Vụ, Hóa Đơn & Đối Soát Cyber")
-st.caption("📅 **Dữ liệu hoạt động:** Từ ngày **29/08/2026** đến nay.")
+st.caption("📅 **Dữ liệu hoạt động:** Bắt đầu từ ngày **29/08/2026** đến nay.")
 
 df_master = load_cached_master()
 
@@ -831,7 +831,7 @@ with tab_work:
         disabled=(not is_admin),
         num_rows="fixed",
         hide_index=True,
-        key=f"data_editor_table_v22_{luong_data}"
+        key=f"data_editor_table_v23_{luong_data}"
     )
 
     st.markdown("---")
@@ -968,7 +968,7 @@ if is_admin:
                 st.success(f"✅ ĐÃ ĐỒNG BỘ THÀNH CÔNG! Thêm **{len(new_records)}** lệnh mới, cập nhật **{status_updated_cnt}** lệnh.")
                 st.rerun()
 
-    # TAB 3: KHỚP HÓA ĐƠN
+    # TAB 3: KHỚP HÓA ĐƠN VỚI 4 DANH MỤC CHỌN CỘT THÔNG MINH
     with tab_inv:
         st.subheader("Khớp file Hóa Đơn kế toán với Hệ Thống")
         st.caption("Tự động gộp tất cả hóa đơn cùng 1 LSC: nối số HĐ bằng dấu phẩy và cộng dồn tiền chính xác 100%.")
@@ -977,16 +977,18 @@ if is_admin:
         if up_inv:
             df_inv, col_labels = doc_file_hoa_don_chuan(up_inv)
             
-            def find_idx(kw_list, default=0):
+            # TỰ ĐỘNG TÌM ĐÚNG VỊ TRÍ 4 CỘT CHUẨN CỦA FILE KẾ TOÁN
+            def find_best_col(kw_list, default_idx=0):
                 for i, label in enumerate(col_labels):
-                    if any(k in label.lower() for k in kw_list):
+                    l_lower = label.lower()
+                    if any(k in l_lower for k in kw_list):
                         return i
-                return default
+                return default_idx
 
-            idx_lsc = find_idx(['ro hãng', 'ro_hãng', 'số ro'], 0)
-            idx_shd = find_idx(['hóa đơn đt', 'số hóa đơn đt', 'số hóa đơn'], 1 if len(col_labels) > 1 else 0)
-            idx_nhd = find_idx(['ngày', 'chứng từ - ngày'], 0)
-            idx_gt  = find_idx(['tổng thanh toán', 'thanh toán', 'thành tiền'], 0)
+            idx_lsc = find_best_col(['số ro hãng', 'ro hãng', 'ro_hãng', 'số ro', 'mã ro'], 0)
+            idx_shd = find_best_col(['số hóa đơn đt', 'hóa đơn đt', 'số hóa đơn', 'số hđ'], 1 if len(col_labels) > 1 else 0)
+            idx_nhd = find_best_col(['chứng từ - ngày', 'ngày chứng từ', 'ngày hđ', 'ngày'], 0)
+            idx_gt  = find_best_col(['tổng thanh toán', 'thanh toán', 'thành tiền', 'tiền hđ'], 0)
 
             c1, c2, c3, c4 = st.columns(4)
             opt_indices = list(range(len(col_labels)))
@@ -994,8 +996,8 @@ if is_admin:
             sel_shd_idx = c2.selectbox("🧾 Cột Số Hóa Đơn:", opt_indices, format_func=lambda i: col_labels[i], index=idx_shd)
             
             opt_with_none = [-1] + opt_indices
-            sel_nhd_idx = c3.selectbox("📅 Cột Ngày Hóa Đơn:", opt_with_none, format_func=lambda i: "Bỏ qua" if i == -1 else col_labels[i], index=idx_nhd + 1 if idx_nhd != 0 else 0)
-            sel_gt_idx  = c4.selectbox("💰 Cột Giá Trị Hóa Đơn:", opt_with_none, format_func=lambda i: "Bỏ qua" if i == -1 else col_labels[i], index=idx_gt + 1 if idx_gt != 0 else 0)
+            sel_nhd_idx = c3.selectbox("📅 Cột Ngày Hóa Đơn:", opt_with_none, format_func=lambda i: "Bỏ qua" if i == -1 else col_labels[i], index=idx_nhd + 1)
+            sel_gt_idx  = c4.selectbox("💰 Cột Giá Trị Hóa Đơn:", opt_with_none, format_func=lambda i: "Bỏ qua" if i == -1 else col_labels[i], index=idx_gt + 1)
 
             if st.button("🚀 BẮT ĐẦU KHỚP HÓA ĐƠN", type="primary", use_container_width=True):
                 p_bar_inv = st.progress(0)
@@ -1004,7 +1006,14 @@ if is_admin:
                 p_bar_inv.progress(15)
 
                 df_master = df_master.reset_index(drop=True)
-                norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
+                
+                # TẠO TẬP HỢP TÌM KIẾM MÃ RO LSC ĐẦY ĐỦ
+                norm_map = {}
+                for idx, lsc in enumerate(df_master['Số lệnh sửa chữa']):
+                    norm_map[norm_lsc_key(lsc)] = idx
+                    c_key = lay_loi_ma_wo(lsc)
+                    if c_key:
+                        norm_map[c_key] = idx
                 
                 inv_aggregated = {}
                 total_inv_rows = len(df_inv)
@@ -1012,6 +1021,7 @@ if is_admin:
                 for r_idx in range(total_inv_rows):
                     raw_lsc = str(df_inv.iloc[r_idx, sel_lsc_idx])
                     key_norm = norm_lsc_key(raw_lsc)
+                    key_core = lay_loi_ma_wo(raw_lsc)
 
                     shd_val = str(df_inv.iloc[r_idx, sel_shd_idx]).strip() if pd.notna(df_inv.iloc[r_idx, sel_shd_idx]) else ""
                     if shd_val.endswith('.0'): shd_val = shd_val[:-2]
@@ -1027,27 +1037,29 @@ if is_admin:
                         except ValueError:
                             gt_val = 0
 
-                    if not key_norm or len(key_norm) < 4:
+                    match_key = key_norm if key_norm in norm_map else (key_core if key_core in norm_map else key_norm)
+
+                    if not match_key or len(match_key) < 4:
                         continue
 
-                    if key_norm not in inv_aggregated:
-                        inv_aggregated[key_norm] = {
+                    if match_key not in inv_aggregated:
+                        inv_aggregated[match_key] = {
                             'so_hd': [shd_val] if shd_val and shd_val not in ['', 'nan', 'None'] else [],
                             'ngay_hd': [nhd_val] if nhd_val else [],
                             'tong_tien': gt_val
                         }
                     else:
-                        if shd_val and shd_val not in ['', 'nan', 'None'] and shd_val not in inv_aggregated[key_norm]['so_hd']:
-                            inv_aggregated[key_norm]['so_hd'].append(shd_val)
-                        if nhd_val and nhd_val not in inv_aggregated[key_norm]['ngay_hd']:
-                            inv_aggregated[key_norm]['ngay_hd'].append(nhd_val)
-                        inv_aggregated[key_norm]['tong_tien'] += gt_val
+                        if shd_val and shd_val not in ['', 'nan', 'None'] and shd_val not in inv_aggregated[match_key]['so_hd']:
+                            inv_aggregated[match_key]['so_hd'].append(shd_val)
+                        if nhd_val and nhd_val not in inv_aggregated[match_key]['ngay_hd']:
+                            inv_aggregated[match_key]['ngay_hd'].append(nhd_val)
+                        inv_aggregated[match_key]['tong_tien'] += gt_val
 
                 matched_records = []
                 total_keys = len(inv_aggregated)
 
-                for k_i, (k_norm, val_dict) in enumerate(inv_aggregated.items()):
-                    m_idx = norm_map.get(k_norm)
+                for k_i, (k_target, val_dict) in enumerate(inv_aggregated.items()):
+                    m_idx = norm_map.get(k_target)
 
                     if m_idx is not None:
                         if str(df_master.iloc[m_idx]['Trạng thái']) == 'Đã hủy':
@@ -1075,7 +1087,7 @@ if is_admin:
                 save_master(df_master)
                 p_bar_inv.progress(100)
                 txt_inv.empty()
-                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Khớp và gộp thành công **{len(matched_records)}** lệnh sửa chữa.")
+                st.success(f"✅ ĐÃ KHỚP THÀNH CÔNG! Đồng bộ và cộng dồn hóa đơn cho **{len(matched_records)}** lệnh sửa chữa.")
 
     # TAB 4: IMPORT BẢO HÀNH
     with tab_bh_import:
