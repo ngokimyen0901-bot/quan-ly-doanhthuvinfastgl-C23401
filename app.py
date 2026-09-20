@@ -4,6 +4,7 @@ import io
 import os
 import re
 import time
+import json
 import base64
 import hashlib
 import openpyxl
@@ -14,17 +15,28 @@ st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗",
 
 # CSS TĂNG CỠ CHỮ TO 17PX VÀ DÃN RỘNG HÀNG BẢNG TÍNH
 st.markdown("""
-
+<style>
+    [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+        font-size: 17px !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+    }
+    div[data-testid="stDataFrame"] div, div[data-testid="stDataEditor"] div {
+        font-size: 17px !important;
+    }
+    .dvn-scroller, .glide-data-grid {
+        font-size: 17px !important;
+    }
+</style>
 """, unsafe_allow_html=True)
 
 MASTER_FILE = "master_database.xlsx"
+GSM_FILE = "gsm_fixed_list.json"
 SECRET_KEY_AUTH = "VinFast_GiaLai_Secret_Key_2026"
 
 DANH_SACH_ADMIN = {
     "admin": "Vinfastgialai@2026##"
 }
 
-# MỐC BẮT ĐẦU QUẢN TRỊ DỮ LIỆU: TỪ 29/08/2026 VỀ SAU
 MOC_BAT_DAU_DATE = pd.Timestamp(year=2026, month=8, day=29)
 
 COT_DINH_DANH = [
@@ -144,8 +156,23 @@ def clean_tien_series(ser):
         ser.astype(str)
         .str.replace(',', '', regex=False)
         .str.replace(' ', '', regex=False)
-        .replace(['-', '', 'nan', 'None', ''], '0')
+        .replace(['-', '', 'nan', 'None', '<NA>'], '0')
     )
+
+# --- QUẢN LÝ DANH SÁCH GSM CỐ ĐỊNH DO BẠN CUNG CẤP ---
+def load_gsm_fixed_set():
+    if os.path.exists(GSM_FILE):
+        try:
+            with open(GSM_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return set(data)
+        except Exception:
+            return set()
+    return set()
+
+def save_gsm_fixed_set(gsm_set):
+    with open(GSM_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(gsm_set), f, ensure_ascii=False, indent=2)
 
 def doc_file_hoa_don_chuan(file_obj):
     if file_obj.name.endswith('.csv'):
@@ -295,22 +322,21 @@ def load_cached_master():
     for c in COT_TIEN + ['Giá trị xuất hóa đơn']:
         if c in df_m.columns:
             df_m[c] = pd.to_numeric(clean_tien_series(df_m[c]), errors='coerce').fillna(0)
-            
-    if 'Phân loại KH' in df_m.columns:
+
+    # ÁP DỤNG DANH SÁCH GSM CỐ ĐỊNH DO BẠN QUẢN TRỊ
+    gsm_fixed = load_gsm_fixed_set()
+    if gsm_fixed:
+        df_m['Phân loại KH'] = df_m['Số lệnh sửa chữa'].apply(
+            lambda x: "GSM Công nợ" if norm_lsc_key(x) in gsm_fixed else "KH Thông Thường"
+        )
+    else:
+        if 'Phân loại KH' not in df_m.columns:
+            df_m['Phân loại KH'] = "KH Thông Thường"
         df_m['Phân loại KH'] = df_m['Phân loại KH'].fillna("KH Thông Thường")
-        df_m.loc[df_m['Phân loại KH'] != 'GSM Công nợ', 'Phân loại KH'] = "KH Thông Thường"
 
     df_m = dong_bo_hoa_don(df_m)
     df_m = chuan_hoa_kieu_du_lieu(df_m)
-    
-    truoc = len(df_m)
     df_m = loc_chuan_tu_29_thang_8(df_m)
-    if truoc > len(df_m):
-        try:
-            df_m.to_excel(MASTER_FILE, index=False)
-        except Exception:
-            pass
-            
     return df_m[TAT_CA_COT]
 
 def save_master(df_to_save):
@@ -323,8 +349,8 @@ def save_master(df_to_save):
 def tao_file_mau_gsm():
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Mau_Danh_Sach_No_GSM"
-    headers = ["STT", "Số lệnh sửa chữa / WO (Bắt buộc)", "Ghi chú công nợ (Tùy chọn)"]
+    ws.title = "Danh_Sach_WO_GSM"
+    headers = ["STT", "Số lệnh sửa chữa / WO (Bắt buộc)"]
     ws.row_dimensions[1].height = 26
     font_h = Font(name='Segoe UI', size=11, bold=True, color='FFFFFF')
     fill_h = PatternFill(start_color='1F4E78', fill_type='solid')
@@ -340,7 +366,6 @@ def tao_file_mau_gsm():
         
     ws.column_dimensions['A'].width = 8
     ws.column_dimensions['B'].width = 35
-    ws.column_dimensions['C'].width = 35
     
     out = io.BytesIO()
     wb.save(out)
@@ -475,7 +500,7 @@ def xuat_excel_da_sheet_with_progress(df_full, p_bar=None, status_txt=None):
     df_canh_bao = df_clean[mask_chua_hd].copy()
 
     df_kh_all = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['KH thanh toán'] > 0) & (df_clean['Phân loại KH'] != 'GSM Công nợ')].copy()
-    df_gsm_debt = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['KH thanh toán'] > 0) & (df_clean['Phân loại KH'] == 'GSM Công nợ')].copy()
+    df_gsm_debt = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['Phân loại KH'] == 'GSM Công nợ')].copy()
     df_bh_hang = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['BH hãng thanh toán'] > 0)].copy()
     df_bh = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['BH thanh toán'] > 0)].copy()
     df_noi_bo = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['Nội bộ thanh toán'] > 0)].copy()
@@ -556,7 +581,7 @@ with st.sidebar:
 
 # --- GIAO DIỆN CHÍNH ---
 st.title("🚗 Quản Trị Dịch Vụ, Hóa Đơn & Đối Soát Cyber")
-st.caption("📅 **Phạm vi quản lý dữ liệu:** Bắt đầu từ mốc ngày **29/08/2026** đến nay.")
+st.caption("📅 **Phạm vi quản lý:** Dữ liệu bắt đầu từ ngày **29/08/2026** đến nay.")
 
 df_master = load_cached_master()
 
@@ -566,7 +591,7 @@ if st.session_state.logged_in:
         "📥 2. Nạp Dữ Liệu DMS Mới",
         "🧾 3. Khớp File Hóa Đơn Kế Toán",
         "🛡️ 4. Import Phê Duyệt Bảo Hành (Excel)",
-        "🚕 5. Quản Lý Công Nợ GSM (Import & Nhập Tay)",
+        "🚕 5. Quản Lý Công NỢ GSM (Chỉ Theo Danh Sách Bạn Nạp)",
         "🔍 6. Đối Soát Upload Lên Cyber"
     ])
     tab_work = tabs[0]
@@ -591,12 +616,13 @@ with tab_work:
     kh_chua_hd_cnt = kh_total_cnt - kh_da_hd_cnt
     kh_chua_hd_amt = df_kh_total[df_kh_total['Số hóa đơn'].isna() | df_kh_total['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])]['KH thanh toán'].sum()
 
-    df_gsm_all = df_hoanthanh[(df_hoanthanh['KH thanh toán'] > 0) & (df_hoanthanh['Phân loại KH'] == 'GSM Công nợ')]
+    # GSM: ĐẾM TOÀN BỘ CÁC LỆNH BẠN ĐÃ ĐƯA VÀO DANH SÁCH GSM
+    df_gsm_all = df_master[df_master['Phân loại KH'] == 'GSM Công nợ']
     df_gsm_da_hd = df_gsm_all[df_gsm_all['Số hóa đơn'].notna() & (~df_gsm_all['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))]
     df_gsm_chua_hd = df_gsm_all[df_gsm_all['Số hóa đơn'].isna() | df_gsm_all['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])]
     
     gsm_treo_no_cnt = len(df_gsm_chua_hd)
-    gsm_treo_no_amt = df_gsm_chua_hd['KH thanh toán'].sum()
+    gsm_treo_no_amt = df_gsm_chua_hd.apply(lambda r: r['KH thanh toán'] if r['KH thanh toán'] > 0 else r['Số tiền thanh toán cuối'], axis=1).sum() if len(df_gsm_chua_hd) > 0 else 0
     gsm_da_hd_cnt = len(df_gsm_da_hd)
 
     df_bh_hang = df_hoanthanh[df_hoanthanh['BH hãng thanh toán'] > 0]
@@ -614,7 +640,7 @@ with tab_work:
 
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("📌 KH Thanh Toán (Đã xong)", f"{kh_total_cnt:,} lệnh", f"Đã xuất HĐ: {kh_da_hd_cnt}/{kh_total_cnt}")
-    k2.metric("🚕 GSM Treo Nợ (Chưa HĐ)", f"{gsm_treo_no_cnt:,} lệnh nợ", f"{gsm_treo_no_amt:,.0f} đ (Đã XHĐ: {gsm_da_hd_cnt})")
+    k2.metric("🚕 GSM Nợ (Chưa HĐ)", f"{gsm_treo_no_cnt:,} lệnh nợ", f"{gsm_treo_no_amt:,.0f} đ (Đã XHĐ: {gsm_da_hd_cnt})")
     k3.metric("🛡️ Bảo Hành Hãng (W)", f"{bh_total_cnt:,} lệnh", f"Chưa duyệt: {bh_chua_duyet_cnt}/{bh_total_cnt}")
     k4.metric("🏢 Bảo Hiểm (Insurance)", f"{bh_total_all_cnt:,} lệnh", f"Chưa xuất HĐ: {bh_chua_hd_cnt}/{bh_total_all_cnt}")
     k5.metric("⏳ Đang Làm / Báo Giá", f"{chua_hoan_thanh_cnt:,} lệnh", "Chờ hoàn thành")
@@ -630,7 +656,7 @@ with tab_work:
     with f_col1:
         luong_data = st.selectbox("📂 Chọn luồng dữ liệu xem & quản trị:", [
             "1. KH Thanh Toán (Đã hoàn thành lệnh)",
-            "2. GSM Công Nợ (Chỉ các lệnh thuộc file công nợ)",
+            "2. GSM Công Nợ (Chỉ các lệnh bạn nạp vào GSM)",
             "3. Bảo Hành Hãng (W) - Phê duyệt",
             "4. Bảo Hiểm (Insurance)",
             "5. Nội bộ thanh toán",
@@ -647,7 +673,7 @@ with tab_work:
     if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
         df_show = df_kh_total.copy()
         sheet_file_name = "1_KH_Thanh_Toan"
-    elif luong_data == "2. GSM Công Nợ (Chỉ các lệnh thuộc file công nợ)":
+    elif luong_data == "2. GSM Công Nợ (Chỉ các lệnh bạn nạp vào GSM)":
         df_show = df_gsm_all.copy()
         sheet_file_name = "2_GSM_Cong_No"
     elif luong_data == "3. Bảo Hành Hãng (W) - Phê duyệt":
@@ -741,7 +767,7 @@ with tab_work:
 
     if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
         default_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
-    elif luong_data == "2. GSM Công Nợ (Chỉ các lệnh thuộc file công nợ)":
+    elif luong_data == "2. GSM Công Nợ (Chỉ các lệnh bạn nạp vào GSM)":
         default_cols = cols_base + ['Phân loại KH', 'Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
     elif luong_data == "3. Bảo Hành Hãng (W) - Phê duyệt":
         default_cols = cols_base + ['BH hãng thanh toán', 'Phê duyệt bảo hành'] + cols_hd
@@ -825,7 +851,7 @@ with tab_work:
         disabled=(not is_admin),
         num_rows="fixed",
         hide_index=True,
-        key=f"data_editor_table_v14_{luong_data}"
+        key=f"data_editor_table_v17_{luong_data}"
     )
 
     st.markdown("---")
@@ -857,7 +883,7 @@ with tab_work:
 
     with c_btn_clean:
         if is_admin:
-            if st.button("🧹 Lọc Chặn Chuẩn (Từ 29/08)", use_container_width=True):
+            if st.button("🧹 Quét & Rút Gọn Lệnh Trùng", use_container_width=True):
                 truoc_do = len(df_master)
                 df_master = loc_chuan_tu_29_thang_8(df_master)
                 save_master(df_master)
@@ -896,7 +922,7 @@ if is_admin:
     # TAB 2: NẠP DỮ LIỆU DMS
     with tab_import:
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
-        st.info("💡 **Cơ chế:** Hệ thống tự động lọc giữ các lệnh từ ngày **29/08/2026 trở về sau**. Mọi hóa đơn, ghi chú đã khớp trên các xe này đều được bảo toàn 100%.")
+        st.info("💡 **Cơ chế:** Hệ thống tự động lọc giữ các lệnh từ ngày **29/08/2026 trở về sau**. Mọi hóa đơn, ghi chú và danh sách GSM bạn đã nạp đều được bảo toàn 100%.")
         up_db = st.file_uploader("Kéo thả file Database mới vào đây", type=['csv', 'xlsx'], key='up_dms')
 
         if up_db:
@@ -918,7 +944,6 @@ if is_admin:
                 df_inc = dong_bo_hoa_don(df_inc)
                 df_inc = chuan_hoa_kieu_du_lieu(df_inc)
                 
-                # CHỈ LẤY LỆNH TỪ 29/08/2026 TRỞ ĐI
                 df_inc = loc_chuan_tu_29_thang_8(df_inc)
 
                 p_bar_dms = st.progress(0)
@@ -1138,143 +1163,106 @@ if is_admin:
                 txt_bh.empty()
                 st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Đã cập nhật phê duyệt cho **{bh_updated}** lệnh bảo hành.")
 
-    # TAB 5: QUẢN LÝ CÔNG NỢ GSM (CHỈ THEO SỐ WO)
+    # TAB 5: QUẢN LÝ CÔNG NỢ GSM CỐ ĐỊNH 100% DO BẠN QUYẾT ĐỊNH
     with tab_gsm_import:
-        st.subheader("🚕 Quản Lý Danh Sách Công NỢ GSM (Chỉ Theo Số WO)")
-        
-        col_t1, col_t2 = st.columns([3, 2])
-        with col_t1:
-            st.info("💡 **Ghi chú nghiệp vụ:** Hệ thống chỉ gán nợ GSM cho đúng các Số LSC/WO có trong file bạn nạp. Các lệnh đã xuất hóa đơn sẽ tự động được ghi nhận là Đã xuất HĐ và không treo nợ trên KPI.")
-        with col_t2:
-            file_mau_bytes = tao_file_mau_gsm()
-            st.download_button(
-                label="📄 Tải Form File Mẫu Excel GSM Chuẩn (.xlsx)",
-                data=file_mau_bytes,
-                file_name="Mau_Import_Cong_No_GSM.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+        st.subheader("🚕 Quản Lý Danh Sách Công NỢ GSM Cố Định")
+        st.info("📌 **Quy tắc tuyệt đối:** Hệ thống **KHÔNG TỰ SUY ĐOÁN**. Chỉ có những mã WO bạn tải file hoặc dán vào đây mới được tính là GSM. Mọi xe khác luôn là Khách Thông Thường.")
 
-        st.markdown("---")
-        c_tab_file, c_tab_tay = st.tabs(["📂 Cách 1: Nạp File Excel Danh Sách WO Nợ", "✍️ Cách 2: Nhập Tay Lệnh Nợ GSM Trực Tiếp"])
+        gsm_current_set = load_gsm_fixed_set()
+        st.write(f"📊 Hiện tại hệ thống đang lưu cố định: **{len(gsm_current_set)}** mã lệnh GSM.")
+
+        c_tab_file, c_tab_tay = st.tabs(["📂 Cách 1: Tải File Excel Danh Sách WO GSM", "✍️ Cách 2: Dán Trực Tiếp Danh Sách Mã WO"])
 
         with c_tab_file:
-            up_gsm_file = st.file_uploader("Tải file danh sách lệnh nợ GSM (chỉ cần cột Số LSC/WO)", type=['csv', 'xlsx'], key='up_gsm_file')
+            up_gsm_file = st.file_uploader("Tải file danh sách WO nợ GSM (Excel hoặc CSV):", type=['csv', 'xlsx'], key='up_gsm_file')
             if up_gsm_file:
                 df_gsm_in = doc_file_db(up_gsm_file)
-                st.write("🔎 Xem trước danh sách trong file:")
-                st.dataframe(df_gsm_in.head(3), use_container_width=True)
-                
                 gsm_cols = list(df_gsm_in.columns)
                 idx_gsm_lsc = next((i for i, c in enumerate(gsm_cols) if any(k in c.lower() for k in ['lệnh', 'lsc', 'ro', 'wo'])), 0)
-                s_gsm_lsc = st.selectbox("Chọn cột chứa Số LSC / WO nợ của GSM:", gsm_cols, index=idx_gsm_lsc, key='sel_gsm_col')
+                s_gsm_lsc = st.selectbox("Chọn cột chứa Số LSC / WO:", gsm_cols, index=idx_gsm_lsc, key='sel_gsm_col')
                 
-                che_do_nap = st.radio("Chế độ cập nhật danh sách GSM:", [
-                    "Bổ sung thêm các WO này vào danh sách nợ GSM",
-                    "Làm mới toàn bộ (Chỉ giữ đúng các WO trong file này là nợ GSM, các xe khác quay về KH Thông Thường)"
+                che_do = st.radio("Chọn thao tác:", [
+                    "1. THAY THẾ TOÀN BỘ (Chỉ lấy đúng các WO trong file này làm danh sách GSM)",
+                    "2. BỔ SUNG THÊM (Thêm các WO trong file này vào danh sách GSM hiện tại)"
                 ])
 
-                if st.button("🚀 XÁC NHẬN NẠP VÀO CÔNG NỢ GSM", type="primary", use_container_width=True):
-                    p_bar_gsm = st.progress(0)
-                    df_master = df_master.reset_index(drop=True)
-                    norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
-                    
-                    if "Làm mới toàn bộ" in che_do_nap:
-                        df_master.loc[df_master['Phân loại KH'] == 'GSM Công nợ', 'Phân loại KH'] = "KH Thông Thường"
+                if st.button("🚀 XÁC NHẬN CẬP NHẬT DANH SÁCH GSM", type="primary", use_container_width=True):
+                    extracted_wos = set()
+                    for v in df_gsm_in[s_gsm_lsc].dropna():
+                        k = norm_lsc_key(str(v))
+                        if len(k) > 4:
+                            extracted_wos.add(k)
 
-                    gsm_cnt = 0
-                    total_gsm_in = len(df_gsm_in)
-                    for r_i, (_, r) in enumerate(df_gsm_in.iterrows()):
-                        raw_v = str(r[s_gsm_lsc])
-                        k_norm = norm_lsc_key(raw_v)
-                        if not k_norm or len(k_norm) < 4:
-                            continue
-                        m_idx = norm_map.get(k_norm)
-                        
-                        if m_idx is not None:
-                            df_master.iloc[m_idx, df_master.columns.get_loc('Phân loại KH')] = "GSM Công nợ"
-                            gsm_cnt += 1
-                        if r_i % 20 == 0:
-                            p_bar_gsm.progress(int((r_i / total_gsm_in) * 90))
+                    if "THAY THẾ TOÀN BỘ" in che_do:
+                        final_set = extracted_wos
+                    else:
+                        final_set = gsm_current_set.union(extracted_wos)
 
-                    save_master(df_master)
-                    p_bar_gsm.progress(100)
-                    st.success(f"✅ ĐÃ CHẠY XONG! Đã xác nhận chính xác **{gsm_cnt}** lệnh WO thuộc diện GSM Công Nợ.")
+                    save_gsm_fixed_set(final_set)
+                    load_cached_master.clear()
+                    st.success(f"✅ ĐÃ CẬP NHẬT XONG! Danh sách GSM hiện có đúng **{len(final_set)}** mã WO cố định.")
                     st.rerun()
 
         with c_tab_tay:
-            st.write("##### Nhập danh sách Số LSC (hoặc Biển số) để chuyển đổi qua lại giữa GSM và Khách lẻ:")
-            nhap_tay_txt = st.text_area("Danh sách mã lệnh / biển số:", height=130, placeholder="C23401-WO-260908-0027\nC23401-WO-260908-0028\n81A71620")
+            nhap_tay_txt = st.text_area("Dán danh sách mã WO (mỗi dòng 1 mã):", height=150, placeholder="C23401-WO-260908-0027\nC23401-WO-260908-0028")
             
-            t_col1, t_col2 = st.columns(2)
-            with t_col1:
-                if st.button("➕ Thêm Vào Công NỢ GSM", type="primary", use_container_width=True):
-                    danh_sach_nhap = [norm_lsc_key(x) for x in nhap_tay_txt.split('\n') if norm_lsc_key(x)]
-                    if danh_sach_nhap:
-                        df_master = df_master.reset_index(drop=True)
-                        norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
-                        bs_map = {norm_lsc_key(bs): idx for idx, bs in enumerate(df_master['Biển số'])}
-                        
-                        added_cnt = 0
-                        for k in danh_sach_nhap:
-                            m_idx = norm_map.get(k)
-                            if m_idx is None:
-                                m_idx = bs_map.get(k)
-                            if m_idx is not None:
-                                df_master.iloc[m_idx, df_master.columns.get_loc('Phân loại KH')] = "GSM Công nợ"
-                                added_cnt += 1
-                                
-                        save_master(df_master)
-                        st.success(f"✅ Đã thêm **{added_cnt}** lệnh vào diện công nợ GSM.")
-                        st.rerun()
-                    else:
-                        st.warning("Vui lòng nhập ít nhất 1 mã lệnh hoặc biển số!")
-
-            with t_col2:
-                if st.button("🔄 ĐƯA VỀ KHÁCH LẺ (GỠ KHỎI GSM)", use_container_width=True):
-                    danh_sach_nhap = [norm_lsc_key(x) for x in nhap_tay_txt.split('\n') if norm_lsc_key(x)]
-                    if danh_sach_nhap:
-                        df_master = df_master.reset_index(drop=True)
-                        norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
-                        bs_map = {norm_lsc_key(bs): idx for idx, bs in enumerate(df_master['Biển số'])}
-                        
-                        removed_cnt = 0
-                        for k in danh_sach_nhap:
-                            m_idx = norm_map.get(k)
-                            if m_idx is None:
-                                m_idx = bs_map.get(k)
-                            if m_idx is not None:
-                                df_master.iloc[m_idx, df_master.columns.get_loc('Phân loại KH')] = "KH Thông Thường"
-                                removed_cnt += 1
-                                
-                        save_master(df_master)
-                        st.info(f"✅ ĐÃ GỠ THÀNH CÔNG! Đã chuyển **{removed_cnt}** lệnh quay lại KH Thông Thường.")
-                        st.rerun()
+            c_t1, c_t2 = st.columns(2)
+            with c_t1:
+                if st.button("➕ Thêm Các WO Này Vào GSM", type="primary", use_container_width=True):
+                    new_wos = set([norm_lsc_key(x) for x in nhap_tay_txt.split('\n') if len(norm_lsc_key(x)) > 4])
+                    final_set = gsm_current_set.union(new_wos)
+                    save_gsm_fixed_set(final_set)
+                    load_cached_master.clear()
+                    st.success(f"✅ Đã thêm thành công! Tổng số WO GSM: {len(final_set)}")
+                    st.rerun()
+            with c_t2:
+                if st.button("➖ Xóa Các WO Này Khỏi GSM", use_container_width=True):
+                    rem_wos = set([norm_lsc_key(x) for x in nhap_tay_txt.split('\n') if len(norm_lsc_key(x)) > 4])
+                    final_set = gsm_current_set.difference(rem_wos)
+                    save_gsm_fixed_set(final_set)
+                    load_cached_master.clear()
+                    st.success(f"✅ Đã gỡ thành công! Còn lại {len(final_set)} mã WO GSM.")
+                    st.rerun()
 
             st.markdown("---")
-            if st.button("🗑️ XÓA TRẮNG TOÀN BỘ DANH SÁCH GSM (ĐƯA TẤT CẢ VỀ KHÁCH LẺ)", type="secondary", use_container_width=True):
-                so_luong_gsm = (df_master['Phân loại KH'] == 'GSM Công nợ').sum()
-                df_master['Phân loại KH'] = "KH Thông Thường"
-                save_master(df_master)
-                st.success(f"✅ Đã dọn dẹp xong! Toàn bộ {so_luong_gsm} lệnh GSM cũ đã được đưa về lại KH Thông Thường.")
+            if st.button("🗑️ XÓA TRẮNG TOÀN BỘ DANH SÁCH GSM (ĐƯA TẤT CẢ VỀ KHÁCH THƯỜNG)", type="secondary", use_container_width=True):
+                save_gsm_fixed_set(set())
+                load_cached_master.clear()
+                st.success("✅ Đã xóa sạch danh sách GSM! Hiện tại không còn xe nào bị gán GSM.")
                 st.rerun()
 
         st.markdown("---")
-        st.write("##### 📋 Danh sách toàn bộ các lệnh đang được phân loại là GSM Công nợ:")
+        st.write("##### 📋 Bảng theo dõi các xe thuộc danh sách GSM của bạn:")
         df_gsm_view = df_master[df_master['Phân loại KH'] == 'GSM Công nợ'].copy()
+        
+        c_f_g1, c_f_g2 = st.columns([3, 5])
+        with c_f_g1:
+            loc_tinh_trang_gsm = st.selectbox("Xem tình trạng nợ:", ["Tất cả", "🔴 Chỉ lệnh ĐANG TREO NỢ (Chưa có HĐ)", "🟢 Chỉ lệnh ĐÃ XUẤT HĐ (Đã quyết toán)"])
+
         if len(df_gsm_view) > 0:
             df_gsm_view['Tình trạng HĐ'] = df_gsm_view['Số hóa đơn'].apply(
                 lambda x: "🟢 Đã XHĐ (Đã quyết toán)" if str(x).strip() not in ['', 'nan', 'None', '0'] else "🔴 Đang treo nợ"
             )
-            cols_gsm_show = ['Số lệnh sửa chữa', 'Trạng thái', 'Biển số', 'Tên khách hàng', 'KH thanh toán', 'Số hóa đơn', 'Ngày xuất hóa đơn', 'Tình trạng HĐ']
-            st.dataframe(df_gsm_view[cols_gsm_show], use_container_width=True, hide_index=True)
-        else:
-            st.info("Chưa có lệnh nào được đánh dấu là nợ GSM.")
 
-    # TAB 6: ĐỐI SOÁT CYBER (LOẠI BỎ LỆNH 0 ĐỒNG)
+            if "ĐANG TREO NỢ" in loc_tinh_trang_gsm:
+                df_gsm_view = df_gsm_view[df_gsm_view['Tình trạng HĐ'] == "🔴 Đang treo nợ"]
+            elif "ĐÃ XUẤT HĐ" in loc_tinh_trang_gsm:
+                df_gsm_view = df_gsm_view[df_gsm_view['Tình trạng HĐ'] == "🟢 Đã XHĐ (Đã quyết toán)"]
+
+            cols_gsm_show = ['Số lệnh sửa chữa', 'Trạng thái', 'Biển số', 'Tên khách hàng', 'KH thanh toán', 'Số tiền thanh toán cuối', 'Số hóa đơn', 'Ngày xuất hóa đơn', 'Tình trạng HĐ']
+            
+            cfg_gsm = {
+                "KH thanh toán": st.column_config.NumberColumn("KH thanh toán", format="%,d đ"),
+                "Số tiền thanh toán cuối": st.column_config.NumberColumn("Tổng TT cuối", format="%,d đ")
+            }
+            st.dataframe(df_gsm_view[cols_gsm_show], use_container_width=True, hide_index=True, column_config=cfg_gsm)
+        else:
+            st.info("Chưa có mã WO nào trong danh sách GSM cố định.")
+
+    # TAB 6: ĐỐI SOÁT CYBER
     with tab_cyber:
         st.subheader("🔍 Đối Soát Lệnh Đã Hoàn Thành Chưa Up Lên Phần Mềm Cyber")
-        st.caption("Chỉ xét các lệnh 'Đã đóng' hoặc 'Sẵn sàng bàn giao' có Số tiền thanh toán cuối > 0 đ. Tự động nhận diện cột 'Số RO hãng' từ file Cyber.")
+        st.caption("Chỉ xét các lệnh 'Đã đóng' hoặc 'Sẵn sàng bàn giao'. Tự động nhận diện cột 'Số RO hãng' từ file Cyber.")
         
         up_cyber_file = st.file_uploader("Tải lên file BẢNG TỔNG HỢP LỆNH SỬA CHỮA từ Cyber (Excel)", type=['xlsx', 'xls', 'csv'], key='up_cyber_file')
         
@@ -1288,12 +1276,7 @@ if is_admin:
             txt_cy.write("⏳ Đang đối chiếu với các lệnh đã hoàn thành trên DMS... (60%)")
             p_bar_cy.progress(60)
 
-            # CHỈ LẤY CÁC LỆNH ĐÃ XONG VÀ CÓ TIỀN THANH TOÁN CUỐI > 0
-            df_comp = df_master[
-                (df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & 
-                (df_master['Số tiền thanh toán cuối'] > 0)
-            ].copy()
-            
+            df_comp = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)].copy()
             df_comp['da_up_cyber'] = df_comp['Số lệnh sửa chữa'].apply(
                 lambda x: clean_lsc_giu_gach(x) in cyber_keys or norm_lsc_key(x) in cyber_keys
             )
@@ -1305,12 +1288,12 @@ if is_admin:
             st.success("✅ ĐÃ CHẠY XONG CHU TRÌNH ĐỐI SOÁT!")
             
             c1, c2, c3 = st.columns(3)
-            c1.metric("📌 Tổng Lệnh Có Tiền Đã Xong", f"{len(df_comp):,} lệnh")
+            c1.metric("📌 Tổng Lệnh Đã Hoàn Thành", f"{len(df_comp):,} lệnh")
             c2.metric("🟢 Đã Up Lên Cyber", f"{len(df_da_up):,} lệnh")
             c3.metric("🚨 CHƯA UP LÊN CYBER", f"{len(df_chua_up):,} lệnh", delta=f"-{len(df_chua_up)} lệnh", delta_color="inverse")
             
             if len(df_chua_up) > 0:
-                st.error(f"⚠️ Phát hiện **{len(df_chua_up)}** lệnh sửa chữa phát sinh tiền đã xong nhưng CHƯA ĐƯỢC UP LÊN CYBER để xuất hóa đơn!")
+                st.error(f"⚠️ Phát hiện **{len(df_chua_up)}** lệnh sửa chữa đã xong nhưng CHƯA ĐƯỢC UP LÊN CYBER để xuất hóa đơn!")
                 cols_display = ['Số lệnh sửa chữa', 'Trạng thái', 'Biển số', 'Cố vấn dịch vụ', 'Tên khách hàng', 'Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán']
                 cols_valid = [c for c in cols_display if c in df_chua_up.columns]
                 
@@ -1335,4 +1318,4 @@ if is_admin:
                     type="primary"
                 )
             else:
-                st.success("✅ Toàn bộ các lệnh phát sinh tiền đã hoàn thành đều đã được up lên Cyber đầy đủ.")
+                st.success("✅ Toàn bộ các lệnh đã hoàn thành đều đã được up lên Cyber đầy đủ.")
