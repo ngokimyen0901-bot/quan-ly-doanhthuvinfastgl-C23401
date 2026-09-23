@@ -637,6 +637,8 @@ with tab_work:
     if tong_chua_hd_cnt > 0:
         st.error(
             f"🚨 **CẢNH BÁO CHƯA XUẤT HÓA ĐƠN (CHỈ LỆNH ĐÃ HOÀN THÀNH - KH & BẢO HIỂM): {tong_chua_hd_cnt} lệnh | Tổng tiền: {tong_chua_hd_amt:,.0f} đ** "
+            f"(Chi tiết: Khách hàng thường: **{kh_chua_hd_cnt} lệnh** ({kh_chua_hd_amt:,.0f} đ) | "
+            f"Bảo hiểm: **{bh_chua_hd_cnt} lệnh** ({bh_chua_hd_amt:,.0f} đ). Không tính Báo giá, Sửa chữa, Bảo hành, Nội bộ và GSM)"
         )
 
     f_col1, f_col2, f_col3 = st.columns([3, 2, 3])
