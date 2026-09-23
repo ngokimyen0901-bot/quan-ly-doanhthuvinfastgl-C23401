@@ -254,11 +254,20 @@ def doc_file_db(file_obj):
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
+# ĐÃ KHẮC PHỤC TRIỆT ĐỂ LỖI LOSSYSETITEM TRÊN PYTHON 3.14
 def dong_bo_hoa_don(df_target):
-    mask_chua_hd = df_target['Số hóa đơn'].isna() | df_target['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])
-    df_target.loc[mask_chua_hd, 'Ngày xuất hóa đơn'] = ""
-    df_target.loc[mask_chua_hd, 'Giá trị xuất hóa đơn'] = 0
-    return df_target
+    df_res = df_target.copy()
+    if 'Số hóa đơn' in df_res.columns:
+        df_res['Số hóa đơn'] = df_res['Số hóa đơn'].astype(object).fillna('').astype(str)
+    if 'Ngày xuất hóa đơn' in df_res.columns:
+        df_res['Ngày xuất hóa đơn'] = df_res['Ngày xuất hóa đơn'].astype(object).fillna('').astype(str)
+    if 'Giá trị xuất hóa đơn' in df_res.columns:
+        df_res['Giá trị xuất hóa đơn'] = pd.to_numeric(clean_tien_series(df_res['Giá trị xuất hóa đơn']), errors='coerce').fillna(0)
+
+    mask_chua_hd = df_res['Số hóa đơn'].isna() | df_res['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])
+    df_res.loc[mask_chua_hd, 'Ngày xuất hóa đơn'] = ""
+    df_res.loc[mask_chua_hd, 'Giá trị xuất hóa đơn'] = 0
+    return df_res
 
 def chuan_hoa_kieu_du_lieu(df_input):
     df_out = df_input.copy()
@@ -318,7 +327,11 @@ def load_data_from_gsheets():
 
     for c in TAT_CA_COT:
         if c not in df_m.columns:
-            df_m[c] = None
+            df_m[c] = ""
+
+    for c in TEXT_COLUMNS:
+        if c in df_m.columns:
+            df_m[c] = df_m[c].fillna('').astype(str)
 
     for c in COT_TIEN + ['Giá trị xuất hóa đơn']:
         if c in df_m.columns:
@@ -333,7 +346,7 @@ def load_data_from_gsheets():
     else:
         if 'Phân loại KH' not in df_m.columns:
             df_m['Phân loại KH'] = "KH Thông Thường"
-        df_m['Phân loại KH'] = df_m['Phân loại KH'].fillna("KH Thông Thường")
+        df_m['Phân loại KH'] = df_m['Phân loại KH'].replace('', 'KH Thông Thường').fillna("KH Thông Thường")
 
     df_m = dong_bo_hoa_don(df_m)
     df_m = chuan_hoa_kieu_du_lieu(df_m)
@@ -344,6 +357,9 @@ def save_data_to_gsheets(df_to_save):
     df_clean = dong_bo_hoa_don(df_to_save.copy())
     df_clean = chuan_hoa_kieu_du_lieu(df_clean)
     df_clean = loc_chuan_tu_29_thang_8(df_clean)
+    for c in TEXT_COLUMNS:
+        if c in df_clean.columns:
+            df_clean[c] = df_clean[c].fillna('').astype(str)
     conn.update(worksheet="MasterData", data=df_clean)
 
 def format_sheet_in_workbook(ws, sheet_name, cols_to_hide=None):
@@ -602,7 +618,6 @@ with tab_work:
     bh_chua_duyet_cnt = df_bh_hang[df_bh_hang['Phê duyệt bảo hành'].isin(['Chờ duyệt', None, 'nan', ''])].shape[0]
     bh_total_cnt = len(df_bh_hang)
 
-    df_bh = df_hoanthanh[df_bh_hang['BH thanh toán'] > 0] if 'BH thanh toán' in df_hoanthanh.columns else pd.DataFrame()
     df_bh = df_hoanthanh[df_hoanthanh['BH thanh toán'] > 0]
     bh_da_hd_cnt = df_bh[df_bh['Số hóa đơn'].notna() & (~df_bh['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))].shape[0]
     bh_total_all_cnt = len(df_bh)
@@ -900,7 +915,7 @@ if is_admin:
             if st.button("🚀 BẮT ĐẦU NẠP VÀ LƯU LÊN GOOGLE SHEETS", type="primary", use_container_width=True):
                 df_inc = pd.DataFrame()
                 for c in TAT_CA_COT:
-                    df_inc[c] = df_raw[c] if c in df_raw.columns else None
+                    df_inc[c] = df_raw[c] if c in df_raw.columns else ""
 
                 for c in COT_TIEN:
                     df_inc[c] = pd.to_numeric(clean_tien_series(df_inc[c]), errors='coerce').fillna(0)
