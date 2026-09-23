@@ -9,26 +9,14 @@ import hashlib
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗", layout="wide")
 
 st.markdown("""
-<style>
-    [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
-        font-size: 17px !important;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
-    }
-    div[data-testid="stDataFrame"] div, div[data-testid="stDataEditor"] div {
-        font-size: 17px !important;
-    }
-    .dvn-scroller, .glide-data-grid {
-        font-size: 17px !important;
-    }
-</style>
+
 """, unsafe_allow_html=True)
 
-MASTER_FILE = "master_database.xlsx"
-GSM_TXT_FILE = "danh_sach_gsm.txt"
 SECRET_KEY_AUTH = "VinFast_GiaLai_Secret_Key_2026"
 
 DANH_SACH_ADMIN = {
@@ -62,6 +50,9 @@ TEXT_COLUMNS = [
 ]
 
 TRANG_THAI_HOAN_THANH = ['Đã đóng', 'Sẵn sàng bàn giao']
+
+# KHỞI TẠO KẾT NỐI GOOGLE SHEETS
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 def tao_auth_token(username, so_ngay=10):
     exp_time = int(time.time()) + (so_ngay * 86400)
@@ -161,23 +152,23 @@ def clean_tien_series(ser):
         ser.astype(str)
         .str.replace(',', '', regex=False)
         .str.replace(' ', '', regex=False)
-        .replace(['-', '', 'nan', 'None', '<NA>'], '0')
+        .replace(['-', '', 'nan', 'None', ''], '0')
     )
 
-def doc_danh_sach_gsm_tu_file():
+def doc_danh_sach_gsm_tu_gsheet():
     gsm_keys = set()
-    if os.path.exists(GSM_TXT_FILE):
-        try:
-            with open(GSM_TXT_FILE, 'r', encoding='utf-8') as f:
-                for line in f:
-                    val = line.strip()
-                    if val and not val.startswith('#'):
-                        k_norm = norm_lsc_key(val)
-                        k_core = lay_loi_ma_wo(val)
-                        if k_norm: gsm_keys.add(k_norm)
-                        if k_core: gsm_keys.add(k_core)
-        except Exception:
-            pass
+    try:
+        df_gsm = conn.read(worksheet="GSM_List", ttl=5)
+        if df_gsm is not None and len(df_gsm) > 0:
+            for val in df_gsm.iloc[:, 0].dropna():
+                val_str = str(val).strip()
+                if val_str and not val_str.startswith('#'):
+                    k_norm = norm_lsc_key(val_str)
+                    k_core = lay_loi_ma_wo(val_str)
+                    if k_norm: gsm_keys.add(k_norm)
+                    if k_core: gsm_keys.add(k_core)
+    except Exception:
+        pass
     return gsm_keys
 
 def doc_file_hoa_don_chuan(file_obj):
@@ -309,12 +300,16 @@ def loc_chuan_tu_29_thang_8(df_target):
     df_res = df_res.reset_index(drop=True)
     return df_res
 
-@st.cache_data(show_spinner=False)
-def load_cached_master():
-    if not os.path.exists(MASTER_FILE):
-        df_empty = pd.DataFrame(columns=TAT_CA_COT)
-        df_empty.to_excel(MASTER_FILE, index=False)
-    df_m = pd.read_excel(MASTER_FILE, dtype={'Số lệnh sửa chữa': str, 'Số hóa đơn': str, 'Ngày xuất hóa đơn': str, 'Xe GSM': str})
+# ĐỌC VÀ LƯU TRỰC TIẾP VÀO GOOGLE SHEETS
+def load_data_from_gsheets():
+    try:
+        df_m = conn.read(worksheet="MasterData", ttl=5)
+    except Exception:
+        df_m = pd.DataFrame(columns=TAT_CA_COT)
+
+    if df_m is None or len(df_m) == 0 or 'Số lệnh sửa chữa' not in df_m.columns:
+        df_m = pd.DataFrame(columns=TAT_CA_COT)
+    
     df_m.columns = [str(c).strip() for c in df_m.columns]
     
     cols_to_drop = [c for c in ['Tổng bằng chữ', 'Phân loại bảo hành', 'Loại BH'] if c in df_m.columns]
@@ -329,8 +324,8 @@ def load_cached_master():
         if c in df_m.columns:
             df_m[c] = pd.to_numeric(clean_tien_series(df_m[c]), errors='coerce').fillna(0)
 
-    # ĐỐI CHIẾU DANH SÁCH GSM TỪ FILE danh_sach_gsm.txt
-    gsm_keys_set = doc_danh_sach_gsm_tu_file()
+    # ĐỐI CHIẾU GSM TỪ SHEET GSM_List
+    gsm_keys_set = doc_danh_sach_gsm_tu_gsheet()
     if gsm_keys_set:
         df_m['Phân loại KH'] = df_m['Số lệnh sửa chữa'].apply(
             lambda x: "GSM Công nợ" if norm_lsc_key(x) in gsm_keys_set or lay_loi_ma_wo(x) in gsm_keys_set else "KH Thông Thường"
@@ -345,12 +340,11 @@ def load_cached_master():
     df_m = loc_chuan_tu_29_thang_8(df_m)
     return df_m[TAT_CA_COT]
 
-def save_master(df_to_save):
+def save_data_to_gsheets(df_to_save):
     df_clean = dong_bo_hoa_don(df_to_save.copy())
     df_clean = chuan_hoa_kieu_du_lieu(df_clean)
     df_clean = loc_chuan_tu_29_thang_8(df_clean)
-    df_clean.to_excel(MASTER_FILE, index=False)
-    load_cached_master.clear()
+    conn.update(worksheet="MasterData", data=df_clean)
 
 def format_sheet_in_workbook(ws, sheet_name, cols_to_hide=None):
     font_header = Font(name='Segoe UI', size=11, bold=True, color='FFFFFF')
@@ -561,9 +555,9 @@ with st.sidebar:
 
 # --- GIAO DIỆN CHÍNH ---
 st.title("🚗 Quản Trị Dịch Vụ, Hóa Đơn & Đối Soát Cyber")
-st.caption("📅 **Dữ liệu hoạt động:** Bắt đầu từ ngày **29/08/2026** đến nay.")
+st.caption("☁️ **Lưu trữ đám mây:** Kết nối trực tiếp Google Sheets. Hoạt động từ **29/08/2026**.")
 
-df_master = load_cached_master()
+df_master = load_data_from_gsheets()
 
 if st.session_state.logged_in:
     tabs = st.tabs([
@@ -571,7 +565,7 @@ if st.session_state.logged_in:
         "📥 2. Nạp Dữ Liệu DMS Mới",
         "🧾 3. Khớp File Hóa Đơn Kế Toán",
         "🛡️ 4. Import Phê Duyệt Bảo Hành (Excel)",
-        "🚕 5. Quản Lý Công NỢ GSM (Khóa Cố Định Theo File)",
+        "🚕 5. Quản Lý Công NỢ GSM (Google Sheets)",
         "🔍 6. Đối Soát Upload Lên Cyber"
     ])
     tab_work = tabs[0]
@@ -584,7 +578,7 @@ else:
     tabs = st.tabs(["📊 1. Bảng Tính Tra Cứu & Báo Cáo"])
     tab_work = tabs[0]
 
-# TAB 1: BẢNG TÍNH WEB TẬP TRUNG TỪ 29/08/2026
+# TAB 1: BẢNG TÍNH WEB
 with tab_work:
     df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
@@ -596,7 +590,6 @@ with tab_work:
     kh_chua_hd_cnt = kh_total_cnt - kh_da_hd_cnt
     kh_chua_hd_amt = df_kh_total[df_kh_total['Số hóa đơn'].isna() | df_kh_total['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])]['KH thanh toán'].sum()
 
-    # GSM: ĐẾM TOÀN BỘ CÁC LỆNH KHỚP VỚI danh_sach_gsm.txt
     df_gsm_all = df_master[df_master['Phân loại KH'] == 'GSM Công nợ']
     df_gsm_da_hd = df_gsm_all[df_gsm_all['Số hóa đơn'].notna() & (~df_gsm_all['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))]
     df_gsm_chua_hd = df_gsm_all[df_gsm_all['Số hóa đơn'].isna() | df_gsm_all['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])]
@@ -609,6 +602,7 @@ with tab_work:
     bh_chua_duyet_cnt = df_bh_hang[df_bh_hang['Phê duyệt bảo hành'].isin(['Chờ duyệt', None, 'nan', ''])].shape[0]
     bh_total_cnt = len(df_bh_hang)
 
+    df_bh = df_hoanthanh[df_bh_hang['BH thanh toán'] > 0] if 'BH thanh toán' in df_hoanthanh.columns else pd.DataFrame()
     df_bh = df_hoanthanh[df_hoanthanh['BH thanh toán'] > 0]
     bh_da_hd_cnt = df_bh[df_bh['Số hóa đơn'].notna() & (~df_bh['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))].shape[0]
     bh_total_all_cnt = len(df_bh)
@@ -628,15 +622,13 @@ with tab_work:
     if tong_chua_hd_cnt > 0:
         st.error(
             f"🚨 **CẢNH BÁO CHƯA XUẤT HÓA ĐƠN (CHỈ LỆNH ĐÃ HOÀN THÀNH - KH & BẢO HIỂM): {tong_chua_hd_cnt} lệnh | Tổng tiền: {tong_chua_hd_amt:,.0f} đ** "
-            f"\n*(Chi tiết: Khách hàng thường: **{kh_chua_hd_cnt}** lệnh ({kh_chua_hd_amt:,.0f} đ) | "
-            f"Bảo hiểm: **{bh_chua_hd_cnt}** lệnh ({bh_chua_hd_amt:,.0f} đ). Không tính Báo giá, Đang sửa chữa, Bảo hành, Nội bộ và Nợ GSM)*"
         )
 
     f_col1, f_col2, f_col3 = st.columns([3, 2, 3])
     with f_col1:
         luong_data = st.selectbox("📂 Chọn luồng dữ liệu xem & quản trị:", [
             "1. KH Thanh Toán (Đã hoàn thành lệnh)",
-            "2. GSM Công Nợ (Khóa theo danh_sach_gsm.txt)",
+            "2. GSM Công Nợ (Lấy từ Google Sheets)",
             "3. Bảo Hành Hãng (W) - Phê duyệt",
             "4. Bảo Hiểm (Insurance)",
             "5. Nội bộ thanh toán",
@@ -653,7 +645,7 @@ with tab_work:
     if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
         df_show = df_kh_total.copy()
         sheet_file_name = "1_KH_Thanh_Toan"
-    elif luong_data == "2. GSM Công Nợ (Khóa theo danh_sach_gsm.txt)":
+    elif luong_data == "2. GSM Công Nợ (Lấy từ Google Sheets)":
         df_show = df_gsm_all.copy()
         sheet_file_name = "2_GSM_Cong_No"
     elif luong_data == "3. Bảo Hành Hãng (W) - Phê duyệt":
@@ -747,7 +739,7 @@ with tab_work:
 
     if luong_data == "1. KH Thanh Toán (Đã hoàn thành lệnh)":
         default_cols = cols_base + ['Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
-    elif luong_data == "2. GSM Công Nợ (Khóa theo danh_sach_gsm.txt)":
+    elif luong_data == "2. GSM Công Nợ (Lấy từ Google Sheets)":
         default_cols = cols_base + ['Phân loại KH', 'Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
     elif luong_data == "3. Bảo Hành Hãng (W) - Phê duyệt":
         default_cols = cols_base + ['BH hãng thanh toán', 'Phê duyệt bảo hành'] + cols_hd
@@ -764,7 +756,7 @@ with tab_work:
     else:
         default_cols = cols_base + ['Phân loại KH', 'Phê duyệt bảo hành', 'Số tiền thanh toán cuối'] + cols_4_thanh_toan + cols_hd
 
-    with st.expander("👁️ Tùy biến Cột hiển thị (Bấm để Tick chọn Unhide hoặc bỏ chọn để Hide cột)", expanded=False):
+    with st.expander("👁️ Tùy biến Cột hiển thị", expanded=False):
         selected_cols = st.multiselect(
             "Chọn các cột bạn muốn xem trên bảng:",
             options=tat_ca_cot_bang,
@@ -818,11 +810,6 @@ with tab_work:
         "Giá trị xuất hóa đơn": st.column_config.NumberColumn("Tiền HĐ", format="%,d đ", disabled=not is_admin),
     }
 
-    if not is_admin:
-        st.info("ℹ️ Bạn đang ở chế độ **Chỉ Xem (Read-only)**. Để chỉnh sửa dữ liệu hoặc nạp file, vui lòng đăng nhập quyền Quản trị ở thanh bên trái.")
-    else:
-        st.caption("💡 **Mẹo:** Bấm vào tiêu đề bất kỳ cột nào để Sort trực tiếp. Khi nhập tay, có thể bấm **Ctrl + Z** để hoàn tác.")
-
     edited_df = st.data_editor(
         df_render,
         use_container_width=True,
@@ -831,7 +818,7 @@ with tab_work:
         disabled=(not is_admin),
         num_rows="fixed",
         hide_index=True,
-        key=f"data_editor_table_v23_{luong_data}"
+        key=f"data_editor_table_gsheets_{luong_data}"
     )
 
     st.markdown("---")
@@ -839,7 +826,7 @@ with tab_work:
 
     with c_btn1:
         if is_admin:
-            if st.button("💾 Lưu Mọi Chỉnh Sửa Trực Tiếp", type="primary", use_container_width=True):
+            if st.button("☁️ Lưu Trực Tiếp Lên Google Sheets", type="primary", use_container_width=True):
                 prog = st.progress(0)
                 edit_dict = edited_df.set_index('Số lệnh sửa chữa').to_dict('index')
                 total_rows = len(df_master)
@@ -852,9 +839,9 @@ with tab_work:
                     if idx % 100 == 0:
                         prog.progress(int((idx / total_rows) * 80))
                         
-                save_master(df_master)
+                save_data_to_gsheets(df_master)
                 prog.progress(100)
-                st.success("✅ Dữ liệu đã lưu thành công vào Hệ Thống.")
+                st.success("✅ Dữ liệu đã lưu vĩnh viễn lên Google Sheets!")
 
     with c_btn1_undo:
         if is_admin:
@@ -866,9 +853,9 @@ with tab_work:
             if st.button("🧹 Lọc Chặn Chuẩn (Từ 29/08)", use_container_width=True):
                 truoc_do = len(df_master)
                 df_master = loc_chuan_tu_29_thang_8(df_master)
-                save_master(df_master)
+                save_data_to_gsheets(df_master)
                 da_xoa = truoc_do - len(df_master)
-                st.success(f"✅ Đã dọn dẹp sạch! Loại bỏ thành công {da_xoa} dòng dữ liệu trước ngày 29/08/2026.")
+                st.success(f"✅ Đã dọn dẹp sạch {da_xoa} dòng cũ trên Google Sheets.")
                 st.rerun()
 
     with c_btn2:
@@ -902,7 +889,7 @@ if is_admin:
     # TAB 2: NẠP DỮ LIỆU DMS
     with tab_import:
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
-        st.info("💡 **Cơ chế:** Hệ thống tự động lọc giữ các lệnh từ ngày **29/08/2026 trở về sau**. Mọi hóa đơn, ghi chú và danh sách nợ GSM được khóa cố định theo file `danh_sach_gsm.txt` không bao giờ bị mất.")
+        st.info("💡 Dữ liệu nạp mới sẽ được đồng bộ và lưu vĩnh viễn lên Google Sheets.")
         up_db = st.file_uploader("Kéo thả file Database mới vào đây", type=['csv', 'xlsx'], key='up_dms')
 
         if up_db:
@@ -910,7 +897,7 @@ if is_admin:
             st.write("🔎 Xem trước file vừa tải lên:")
             st.dataframe(df_raw.head(3), use_container_width=True)
 
-            if st.button("🚀 BẮT ĐẦU NẠP VÀ ĐỒNG BỘ DỮ LIỆU", type="primary", use_container_width=True):
+            if st.button("🚀 BẮT ĐẦU NẠP VÀ LƯU LÊN GOOGLE SHEETS", type="primary", use_container_width=True):
                 df_inc = pd.DataFrame()
                 for c in TAT_CA_COT:
                     df_inc[c] = df_raw[c] if c in df_raw.columns else None
@@ -923,7 +910,6 @@ if is_admin:
                 df_inc.loc[(df_inc['BH hãng thanh toán'] > 0) & (df_inc['Phê duyệt bảo hành'].isna()), 'Phê duyệt bảo hành'] = "Chờ duyệt"
                 df_inc = dong_bo_hoa_don(df_inc)
                 df_inc = chuan_hoa_kieu_du_lieu(df_inc)
-                
                 df_inc = loc_chuan_tu_29_thang_8(df_inc)
 
                 p_bar_dms = st.progress(0)
@@ -962,13 +948,13 @@ if is_admin:
                 if new_records:
                     df_master = pd.concat([df_master, pd.DataFrame(new_records)], ignore_index=True)
 
-                save_master(df_master)
+                save_data_to_gsheets(df_master)
                 p_bar_dms.progress(100)
                 txt_dms.empty()
-                st.success(f"✅ ĐÃ ĐỒNG BỘ THÀNH CÔNG! Thêm **{len(new_records)}** lệnh mới, cập nhật **{status_updated_cnt}** lệnh.")
+                st.success(f"✅ ĐÃ ĐỒNG BỘ LÊN GOOGLE SHEETS! Thêm **{len(new_records)}** lệnh mới, cập nhật **{status_updated_cnt}** lệnh.")
                 st.rerun()
 
-    # TAB 3: KHỚP HÓA ĐƠN VỚI 4 DANH MỤC CHỌN CỘT THÔNG MINH
+    # TAB 3: KHỚP HÓA ĐƠN
     with tab_inv:
         st.subheader("Khớp file Hóa Đơn kế toán với Hệ Thống")
         st.caption("Tự động gộp tất cả hóa đơn cùng 1 LSC: nối số HĐ bằng dấu phẩy và cộng dồn tiền chính xác 100%.")
@@ -977,18 +963,17 @@ if is_admin:
         if up_inv:
             df_inv, col_labels = doc_file_hoa_don_chuan(up_inv)
             
-            # TỰ ĐỘNG TÌM ĐÚNG VỊ TRÍ 4 CỘT CHUẨN CỦA FILE KẾ TOÁN
-            def find_best_col(kw_list, default_idx=0):
-                for i, label in enumerate(col_labels):
-                    l_lower = label.lower()
-                    if any(k in l_lower for k in kw_list):
-                        return i
+            def tim_chinh_xac_cot(uu_tien_list, default_idx=0):
+                for kw in uu_tien_list:
+                    for i, label in enumerate(col_labels):
+                        if kw in label.lower():
+                            return i
                 return default_idx
 
-            idx_lsc = find_best_col(['số ro hãng', 'ro hãng', 'ro_hãng', 'số ro', 'mã ro'], 0)
-            idx_shd = find_best_col(['số hóa đơn đt', 'hóa đơn đt', 'số hóa đơn', 'số hđ'], 1 if len(col_labels) > 1 else 0)
-            idx_nhd = find_best_col(['chứng từ - ngày', 'ngày chứng từ', 'ngày hđ', 'ngày'], 0)
-            idx_gt  = find_best_col(['tổng thanh toán', 'thanh toán', 'thành tiền', 'tiền hđ'], 0)
+            idx_lsc = tim_chinh_xac_cot(['ro hãng', 'ro_hãng', 'lệnh hãng', 'ro hang', 'số ro hãng', 'số ro'], 0)
+            idx_shd = tim_chinh_xac_cot(['hóa đơn đt', 'hóa đơn điện tử', 'số hóa đơn đt', 'số hđ đt', 'số hóa đơn', 'số hđ'], 1 if len(col_labels) > 1 else 0)
+            idx_nhd = tim_chinh_xac_cot(['chứng từ - ngày', 'chứng từ ngày', 'ngày chứng từ', 'ngày hđ', 'ngày'], 0)
+            idx_gt  = tim_chinh_xac_cot(['tổng thanh toán', 'thanh toán', 'tổng tiền', 'thành tiền'], 0)
 
             c1, c2, c3, c4 = st.columns(4)
             opt_indices = list(range(len(col_labels)))
@@ -1007,7 +992,6 @@ if is_admin:
 
                 df_master = df_master.reset_index(drop=True)
                 
-                # TẠO TẬP HỢP TÌM KIẾM MÃ RO LSC ĐẦY ĐỦ
                 norm_map = {}
                 for idx, lsc in enumerate(df_master['Số lệnh sửa chữa']):
                     norm_map[norm_lsc_key(lsc)] = idx
@@ -1084,10 +1068,10 @@ if is_admin:
                         pct = int(15 + (k_i / max(total_keys, 1)) * 75)
                         p_bar_inv.progress(pct)
 
-                save_master(df_master)
+                save_data_to_gsheets(df_master)
                 p_bar_inv.progress(100)
                 txt_inv.empty()
-                st.success(f"✅ ĐÃ KHỚP THÀNH CÔNG! Đồng bộ và cộng dồn hóa đơn cho **{len(matched_records)}** lệnh sửa chữa.")
+                st.success(f"✅ ĐÃ KHỚP & LƯU LÊN GOOGLE SHEETS! Khớp và gộp {len(matched_records)} lệnh.")
 
     # TAB 4: IMPORT BẢO HÀNH
     with tab_bh_import:
@@ -1096,9 +1080,6 @@ if is_admin:
         
         if up_bh_file:
             df_bh_input = doc_file_db(up_bh_file)
-            st.write("🔎 Xem trước file bảo hành:")
-            st.dataframe(df_bh_input.head(3), use_container_width=True)
-            
             bh_cols = list(df_bh_input.columns)
             b1, b2, b3, b4 = st.columns(4)
             
@@ -1108,11 +1089,11 @@ if is_admin:
             idx_bh_nhd = next((i for i, c in enumerate(bh_cols) if any(k in c.lower() for k in ['ngày'])), 0)
 
             s_bh_lsc = b1.selectbox("Cột Số LSC:", bh_cols, index=idx_bh_lsc)
-            s_bh_tt  = b2.selectbox("Cột Trạng Thái Duyệt (Đã duyệt/Từ chối...):", bh_cols, index=idx_bh_tt)
-            s_bh_shd = b3.selectbox("Cột Số Hóa Đơn (nếu có):", [None] + bh_cols, index=idx_bh_shd + 1 if idx_bh_shd != 0 else 0)
-            s_bh_nhd = b4.selectbox("Cột Ngày Hóa Đơn (nếu có):", [None] + bh_cols, index=idx_bh_nhd + 1 if idx_bh_nhd != 0 else 0)
+            s_bh_tt  = b2.selectbox("Cột Trạng Thái Duyệt:", bh_cols, index=idx_bh_tt)
+            s_bh_shd = b3.selectbox("Cột Số Hóa Đơn:", [None] + bh_cols, index=idx_bh_shd + 1 if idx_bh_shd != 0 else 0)
+            s_bh_nhd = b4.selectbox("Cột Ngày Hóa Đơn:", [None] + bh_cols, index=idx_bh_nhd + 1 if idx_bh_nhd != 0 else 0)
 
-            if st.button("🚀 BẮT ĐẦU CẬP NHẬT PHÊ DUYỆT BẢO HÀNH", type="primary", use_container_width=True):
+            if st.button("🚀 CẬP NHẬT PHÊ DUYỆT LÊN GOOGLE SHEETS", type="primary", use_container_width=True):
                 p_bar_bh = st.progress(0)
                 txt_bh = st.empty()
                 txt_bh.write("⏳ Đang đối soát danh sách bảo hành...")
@@ -1150,26 +1131,23 @@ if is_admin:
                         pct = int((r_i / total_bh_rows) * 90)
                         p_bar_bh.progress(pct)
 
-                save_master(df_master)
+                save_data_to_gsheets(df_master)
                 p_bar_bh.progress(100)
                 txt_bh.empty()
-                st.success(f"✅ ĐÃ CHẠY XONG CHU TRÌNH! Đã cập nhật phê duyệt cho **{bh_updated}** lệnh bảo hành.")
+                st.success(f"✅ ĐÃ CẬP NHẬT LÊN GOOGLE SHEETS cho **{bh_updated}** lệnh bảo hành.")
 
-    # TAB 5: QUẢN LÝ CÔNG NỢ GSM (ĐỌC TRỰC TIẾP TỪ danh_sach_gsm.txt TRÊN GITHUB)
+    # TAB 5: QUẢN LÝ CÔNG NỢ GSM (ĐỌC TỪ SHEET GSM_List)
     with tab_gsm_import:
-        st.subheader("🚕 Quản Lý Công Nợ GSM Cố Định (Lưu Vĩnh Viễn Trên GitHub)")
-        st.info("📌 **Quy tắc:** Hệ thống tự động đối chiếu với danh sách mã WO trong file `danh_sach_gsm.txt`. Dù ứng dụng reboot bao nhiêu lần, dữ liệu vẫn được bảo đảm 100%.")
+        st.subheader("🚕 Quản Lý Công Nợ GSM (Đồng Bộ Google Sheets)")
+        st.info("📌 **Quy tắc:** Dữ liệu tự động lấy từ sheet `GSM_List` trên file Google Sheets của bạn. Bạn có thể mở file Google Sheets dán thêm mã bất cứ lúc nào.")
 
-        gsm_keys_set = doc_danh_sach_gsm_tu_file()
+        gsm_keys_set = doc_danh_sach_gsm_tu_gsheet()
         st.write(f"📊 Hiện tại hệ thống đang nhận diện: **{len(gsm_keys_set)}** mã WO GSM.")
 
-        if st.button("🔄 Nạp Lại Dữ Liệu Từ File danh_sach_gsm.txt", type="primary", use_container_width=True):
-            load_cached_master.clear()
-            st.success("✅ Đã đồng bộ lại danh sách GSM mới nhất từ file!")
+        if st.button("🔄 Nạp Lại Dữ Liệu Từ Google Sheets", type="primary", use_container_width=True):
             st.rerun()
 
         st.markdown("---")
-        st.write("##### 📋 Bảng theo dõi các xe thuộc danh sách GSM cố định:")
         df_gsm_view = df_master[(df_master['Phân loại KH'] == 'GSM Công nợ') & (df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH))].copy()
         
         c_f_g1, c_f_g2 = st.columns([3, 5])
@@ -1194,13 +1172,11 @@ if is_admin:
             }
             st.dataframe(df_gsm_view[cols_gsm_show], use_container_width=True, hide_index=True, column_config=cfg_gsm)
         else:
-            st.warning("⚠️ Chưa tìm thấy mã WO nào trong danh sách. Vui lòng tạo file `danh_sach_gsm.txt` trên GitHub và dán danh sách mã WO vào đó.")
+            st.warning("⚠️ Chưa tìm thấy mã WO GSM nào. Hãy kiểm tra sheet `GSM_List` trên Google Sheets của bạn.")
 
     # TAB 6: ĐỐI SOÁT CYBER
     with tab_cyber:
         st.subheader("🔍 Đối Soát Lệnh Đã Hoàn Thành Chưa Up Lên Phần Mềm Cyber")
-        st.caption("Chỉ xét các lệnh 'Đã đóng' hoặc 'Sẵn sàng bàn giao'. Tự động nhận diện cột 'Số RO hãng' từ file Cyber.")
-        
         up_cyber_file = st.file_uploader("Tải lên file BẢNG TỔNG HỢP LỆNH SỬA CHỮA từ Cyber (Excel)", type=['xlsx', 'xls', 'csv'], key='up_cyber_file')
         
         if up_cyber_file:
@@ -1210,9 +1186,6 @@ if is_admin:
             p_bar_cy.progress(20)
 
             cyber_keys = doc_file_cyber(up_cyber_file)
-            txt_cy.write("⏳ Đang đối chiếu với các lệnh đã hoàn thành trên DMS... (60%)")
-            p_bar_cy.progress(60)
-
             df_comp = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)].copy()
             df_comp['da_up_cyber'] = df_comp['Số lệnh sửa chữa'].apply(
                 lambda x: clean_lsc_giu_gach(x) in cyber_keys or norm_lsc_key(x) in cyber_keys
@@ -1222,7 +1195,6 @@ if is_admin:
             df_da_up = df_comp[df_comp['da_up_cyber']].copy()
             p_bar_cy.progress(100)
             txt_cy.empty()
-            st.success("✅ ĐÃ CHẠY XONG CHU TRÌNH ĐỐI SOÁT!")
             
             c1, c2, c3 = st.columns(3)
             c1.metric("📌 Tổng Lệnh Đã Hoàn Thành", f"{len(df_comp):,} lệnh")
@@ -1230,29 +1202,7 @@ if is_admin:
             c3.metric("🚨 CHƯA UP LÊN CYBER", f"{len(df_chua_up):,} lệnh", delta=f"-{len(df_chua_up)} lệnh", delta_color="inverse")
             
             if len(df_chua_up) > 0:
-                st.error(f"⚠️ Phát hiện **{len(df_chua_up)}** lệnh sửa chữa đã xong nhưng CHƯA ĐƯỢC UP LÊN CYBER để xuất hóa đơn!")
+                st.error(f"⚠️ Có {len(df_chua_up)} lệnh hoàn thành chưa được đẩy lên Cyber.")
                 cols_display = ['Số lệnh sửa chữa', 'Trạng thái', 'Biển số', 'Cố vấn dịch vụ', 'Tên khách hàng', 'Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán']
                 cols_valid = [c for c in cols_display if c in df_chua_up.columns]
-                
                 st.dataframe(df_chua_up[cols_valid], use_container_width=True)
-                
-                buffer_chua_up = io.BytesIO()
-                with pd.ExcelWriter(buffer_chua_up, engine='openpyxl') as wr:
-                    df_chua_up[cols_valid].to_excel(wr, index=False, sheet_name='Chua_Up_Cyber')
-                buffer_chua_up.seek(0)
-                
-                wb_chua = openpyxl.load_workbook(buffer_chua_up)
-                format_sheet_in_workbook(wb_chua.active, 'Chua_Up_Cyber')
-                out_chua = io.BytesIO()
-                wb_chua.save(out_chua)
-                out_chua.seek(0)
-                
-                st.download_button(
-                    label="📥 Tải Danh Sách Các Lệnh Chưa Up Lên Cyber (Định Dạng Đẹp)",
-                    data=out_chua,
-                    file_name="Danh_Sach_LSC_Chua_Up_Cyber.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary"
-                )
-            else:
-                st.success("✅ Toàn bộ các lệnh đã hoàn thành đều đã được up lên Cyber đầy đủ.")
