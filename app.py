@@ -348,7 +348,7 @@ def load_data_from_gsheets():
         
         if is_gsm_match:
             df_m.at[idx, 'Phân loại KH'] = "GSM Công nợ"
-        elif cur_pl in ["Bảo Hiểm", "Nội Bộ / PDI"]:
+        elif cur_pl in ["Bảo Hiểm", "Bảo Hành Hãng", "Nội Bộ / PDI"]:
             pass  # Giữ nguyên phân loại bạn đã gán thủ công
         elif not cur_pl or cur_pl in ['nan', 'None']:
             df_m.at[idx, 'Phân loại KH'] = "KH Thông Thường"
@@ -413,7 +413,7 @@ def format_sheet_in_workbook(ws, sheet_name, cols_to_hide=None):
             pl_val = str(ws.cell(row=r, column=col_pl_idx).value or '').strip() if col_pl_idx != -1 else ''
 
             if tt_val in TRANG_THAI_HOAN_THANH and (shd_val in ['', 'None', 'nan', '0']):
-                if (kh_val > 0 and pl_val not in ['GSM Công nợ', 'Nội Bộ / PDI']) or (bh_val > 0 or pl_val == 'Bảo Hiểm'):
+                if (kh_val > 0 and pl_val not in ['GSM Công nợ', 'Nội Bộ / PDI', 'Bảo Hành Hãng']) or (bh_val > 0 or pl_val == 'Bảo Hiểm'):
                     is_chua_xuat_hd = True
 
         for c in range(1, ws.max_column + 1):
@@ -489,14 +489,14 @@ def xuat_excel_da_sheet_with_progress(df_full, p_bar=None, status_txt=None):
     mask_chua_hd = (df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (
         df_clean['Số hóa đơn'].isna() | df_clean['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])
     ) & (
-        ((df_clean['KH thanh toán'] > 0) & (~df_clean['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Nội Bộ / PDI']))) |
+        ((df_clean['KH thanh toán'] > 0) & (~df_clean['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Bảo Hành Hãng', 'Nội Bộ / PDI']))) |
         (df_clean['BH thanh toán'] > 0) | (df_clean['Phân loại KH'] == 'Bảo Hiểm')
     )
     df_canh_bao = df_clean[mask_chua_hd].copy()
 
-    df_kh_all = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['KH thanh toán'] > 0) & (~df_clean['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Nội Bộ / PDI']))].copy()
+    df_kh_all = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['KH thanh toán'] > 0) & (~df_clean['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Bảo Hành Hãng', 'Nội Bộ / PDI']))].copy()
     df_gsm_debt = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['Phân loại KH'] == 'GSM Công nợ')].copy()
-    df_bh_hang = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['BH hãng thanh toán'] > 0)].copy()
+    df_bh_hang = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & ((df_clean['BH hãng thanh toán'] > 0) | (df_clean['Phân loại KH'] == 'Bảo Hành Hãng'))].copy()
     df_bh = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & ((df_clean['BH thanh toán'] > 0) | (df_clean['Phân loại KH'] == 'Bảo Hiểm'))].copy()
     df_noi_bo = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & ((df_clean['Nội bộ thanh toán'] > 0) | (df_clean['Phân loại KH'] == 'Nội Bộ / PDI'))].copy()
     df_huy = df_clean[df_clean['Trạng thái'] == 'Đã hủy'].copy()
@@ -605,8 +605,8 @@ with tab_work:
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
     chua_hoan_thanh_cnt = len(df_chuahoanthanh)
 
-    # 1. KH Thông Thường
-    mask_kh = (df_hoanthanh['KH thanh toán'] > 0) & (~df_hoanthanh['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Nội Bộ / PDI']))
+    # 1. KH Thông Thường (Loại trừ cả GSM, Bảo Hiểm, Bảo Hành Hãng, Nội Bộ)
+    mask_kh = (df_hoanthanh['KH thanh toán'] > 0) & (~df_hoanthanh['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Bảo Hành Hãng', 'Nội Bộ / PDI']))
     df_kh_total = df_hoanthanh[mask_kh]
     kh_da_hd_cnt = df_kh_total[df_kh_total['Số hóa đơn'].notna() & (~df_kh_total['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))].shape[0]
     kh_total_cnt = len(df_kh_total)
@@ -621,19 +621,19 @@ with tab_work:
     gsm_treo_no_amt = df_gsm_chua_hd.apply(lambda r: r['KH thanh toán'] if r['KH thanh toán'] > 0 else r['Số tiền thanh toán cuối'], axis=1).sum() if len(df_gsm_chua_hd) > 0 else 0
     gsm_da_hd_cnt = len(df_gsm_da_hd)
 
-    # 3. Bảo Hành Hãng
-    df_bh_hang = df_hoanthanh[df_hoanthanh['BH hãng thanh toán'] > 0]
+    # 3. Bảo Hành Hãng (Nhận xe có BH hãng thanh toán HOẶC phân loại là 'Bảo Hành Hãng')
+    mask_bh_hang = (df_hoanthanh['BH hãng thanh toán'] > 0) | (df_hoanthanh['Phân loại KH'] == 'Bảo Hành Hãng')
+    df_bh_hang = df_hoanthanh[mask_bh_hang]
     bh_chua_duyet_cnt = df_bh_hang[df_bh_hang['Phê duyệt bảo hành'].isin(['Chờ duyệt', None, 'nan', ''])].shape[0]
     bh_total_cnt = len(df_bh_hang)
 
-    # 4. Bảo Hiểm (Nhận cả xe BH thanh toán > 0 hoặc được chuyển thủ công sang Bảo Hiểm)
+    # 4. Bảo Hiểm (Nhận xe có BH thanh toán HOẶC phân loại là 'Bảo Hiểm')
     mask_bh = (df_hoanthanh['BH thanh toán'] > 0) | (df_hoanthanh['Phân loại KH'] == 'Bảo Hiểm')
     df_bh = df_hoanthanh[mask_bh]
     bh_da_hd_cnt = df_bh[df_bh['Số hóa đơn'].notna() & (~df_bh['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))].shape[0]
     bh_total_all_cnt = len(df_bh)
     bh_chua_hd_cnt = bh_total_all_cnt - bh_da_hd_cnt
     
-    # Tính tiền BH chưa xuất hóa đơn
     df_bh_chua_hd = df_bh[df_bh['Số hóa đơn'].isna() | df_bh['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])]
     bh_chua_hd_amt = df_bh_chua_hd.apply(lambda r: r['BH thanh toán'] if r['BH thanh toán'] > 0 else r['Số tiền thanh toán cuối'], axis=1).sum() if len(df_bh_chua_hd) > 0 else 0
 
@@ -689,7 +689,7 @@ with tab_work:
         sheet_file_name = "5_Noi_Bo"
     elif luong_data == "🚨 Lệnh Đã Xong Chưa Xuất HĐ (Chỉ KH & Bảo Hiểm)":
         mask_target = (df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (
-            ((df_master['KH thanh toán'] > 0) & (~df_master['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Nội Bộ / PDI']))) |
+            ((df_master['KH thanh toán'] > 0) & (~df_master['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Bảo Hành Hãng', 'Nội Bộ / PDI']))) |
             (df_master['BH thanh toán'] > 0) | (df_master['Phân loại KH'] == 'Bảo Hiểm')
         ) & (df_master['Số hóa đơn'].isna() | df_master['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))
         df_show = df_master[mask_target].copy()
@@ -772,7 +772,7 @@ with tab_work:
     elif luong_data == "2. GSM Công Nợ (Lấy từ Google Sheets)":
         default_cols = cols_base + ['Phân loại KH', 'Số tiền thanh toán cuối', 'KH thanh toán'] + cols_hd
     elif luong_data == "3. Bảo Hành Hãng (W) - Phê duyệt":
-        default_cols = cols_base + ['BH hãng thanh toán', 'Phê duyệt bảo hành'] + cols_hd
+        default_cols = cols_base + ['Phân loại KH', 'BH hãng thanh toán', 'Phê duyệt bảo hành'] + cols_hd
     elif luong_data == "4. Bảo Hiểm (Insurance)":
         default_cols = cols_base + ['Phân loại KH', 'Số tiền thanh toán cuối', 'BH thanh toán'] + cols_hd
     elif luong_data == "5. Nội bộ thanh toán":
@@ -814,7 +814,7 @@ with tab_work:
         "Biển số": st.column_config.TextColumn("Biển số", disabled=not is_admin),
         "Phân loại KH": st.column_config.SelectboxColumn(
             "Phân loại KH", 
-            options=["KH Thông Thường", "Bảo Hiểm", "Nội Bộ / PDI", "GSM Công nợ"], 
+            options=["KH Thông Thường", "Bảo Hiểm", "Bảo Hành Hãng", "Nội Bộ / PDI", "GSM Công nợ"], 
             disabled=not is_admin, 
             required=True
         ),
@@ -1191,7 +1191,7 @@ if is_admin:
         
         c_f_g1, c_f_g2 = st.columns([3, 5])
         with c_f_g1:
-            loc_tinh_trang_gsm = st.selectbox("Xem tình trạng nợ:", ["Tất cả", "🔴 Chỉ lệnh ĐANG TREO NỢ (Chưa có HĐ)", "🟢 Chỉ lệnh ĐÃ XUẤHĐ (Đã quyết toán)"])
+            loc_tinh_trang_gsm = st.selectbox("Xem tình trạng nợ:", ["Tất cả", "🔴 Chỉ lệnh ĐANG TREO NỢ (Chưa có HĐ)", "🟢 Chỉ lệnh ĐÃ XUẤT HĐ (Đã quyết toán)"])
 
         if len(df_gsm_view) > 0:
             df_gsm_view['Tình trạng HĐ'] = df_gsm_view['Số hóa đơn'].apply(
