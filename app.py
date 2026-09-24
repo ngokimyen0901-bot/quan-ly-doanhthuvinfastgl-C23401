@@ -923,7 +923,12 @@ if is_admin:
                     df_inc[c] = pd.to_numeric(clean_tien_series(df_inc[c]), errors='coerce').fillna(0)
 
                 df_inc['Số lệnh sửa chữa'] = df_inc['Số lệnh sửa chữa'].astype(str).apply(clean_lsc_giu_gach)
-                df_inc['Phân loại KH'] = "KH Thông Thường"
+               "Phân loại KH": st.column_config.SelectboxColumn(
+    "Phân loại KH", 
+    options=["KH Thông Thường", "Bảo Hiểm", "Nội Bộ / PDI", "GSM Công nợ"], 
+    disabled=not is_admin, 
+    required=True
+),
                 df_inc.loc[(df_inc['BH hãng thanh toán'] > 0) & (df_inc['Phê duyệt bảo hành'].isna()), 'Phê duyệt bảo hành'] = "Chờ duyệt"
                 df_inc = dong_bo_hoa_don(df_inc)
                 df_inc = chuan_hoa_kieu_du_lieu(df_inc)
