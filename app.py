@@ -358,130 +358,130 @@ with tab_work:
             st.success("✅ Dữ liệu đã lưu vĩnh viễn lên Google Sheets!")
             st.rerun()
 
-# ==================== TAB 4: ĐỐI SOÁT BẢO HÀNH WCS ====================
+# ==================== TAB 4: ĐỐI SOÁT & ĐẨY CHI TIẾT BẢO HÀNH ====================
 with tab_bh_wcs:
-    st.subheader("🛡️ Đối Soát Quyết Toán Bảo Hành Nhà Máy VinFast (WCS)")
-    st.caption("Tải file Bảng Kê Quyết Toán (`BangKe_C23401-WCS...xlsx`) để đối soát kết quả duyệt, kỳ quyết toán và kỳ xuất hóa đơn.")
+    st.subheader("🛡️ Đối Soát & Quản Lý Chi Tiết Bảo Hành VinFast")
+    st.caption("Tải lên 2 file để hệ thống tự động lọc các lệnh bảo hành ĐÃ ĐÓNG, tìm lệnh chưa claim và đẩy toàn bộ chi tiết lên Google Sheets.")
 
-    up_bangke = st.file_uploader("📥 Tải lên File BẢNG KÊ QUYẾT TOÁN NHÀ MÁY (Excel)", type=['xlsx', 'xls'], key="up_bk_tab4_simple")
+    c_up1, c_up2 = st.columns(2)
+    with c_up1:
+        up_dx = st.file_uploader("📥 1. Tải lên file DEXUATBAOHANH (Cổng Nhà Máy)", type=['csv', 'xlsx'], key="up_dx_duo")
+    with c_up2:
+        up_ct = st.file_uploader("📥 2. Tải lên file CHITIETLENHSUACHUA (DMS Xưởng)", type=['csv', 'xlsx'], key="up_ct_duo")
 
-    if up_bangke:
-        xls_bk = pd.ExcelFile(up_bangke)
+    if up_dx and up_ct:
+        df_dx_in = pd.read_csv(up_dx, low_memory=False) if up_dx.name.endswith('.csv') else pd.read_excel(up_dx)
+        df_ct_in = pd.read_csv(up_ct, low_memory=False) if up_ct.name.endswith('.csv') else pd.read_excel(up_ct)
         
-        # 1. Trích xuất thông tin Bảng kê
-        df_bcct_raw = pd.read_excel(up_bangke, sheet_name=xls_bk.sheet_names[0], header=None)
-        ten_bang_ke = str(df_bcct_raw.iloc[0, 0]).strip()
-        match_phieu = re.search(r'CPBH_(\d{4})_([A-Z0-9]+)', ten_bang_ke)
-        ma_phieu_bh = f"BH{match_phieu.group(1)}_{match_phieu.group(2)}" if match_phieu else "BH_VinFast"
+        df_dx_in.columns = [str(c).strip() for c in df_dx_in.columns]
+        df_ct_in.columns = [str(c).strip() for c in df_ct_in.columns]
+
+        # Khóa chuẩn hóa
+        col_dx_lsc = next((c for c in df_dx_in.columns if 'lệnh sửa chữa' in c.lower()), 'Lệnh sửa chữa')
+        col_ct_lsc = next((c for c in df_ct_in.columns if 'lệnh sửa chữa' in c.lower()), 'Lệnh sửa chữa')
         
-        # Kỳ xuất hóa đơn tự động
-        thang_ky = match_phieu.group(1)[2:] if match_phieu else "09"
-        thang_hd = f"Tháng {int(thang_ky) + 1:02d}/2026"
+        df_dx_in['lsc_norm'] = df_dx_in[col_dx_lsc].apply(norm_lsc_key)
+        df_ct_in['lsc_norm'] = df_ct_in[col_ct_lsc].apply(norm_lsc_key)
 
-        # 2. Đọc Sheet2 và Chi tiết_Đối soát
-        df_s2_raw = pd.read_excel(up_bangke, sheet_name='Sheet2') if 'Sheet2' in xls_bk.sheet_names else pd.DataFrame()
-        df_ct_raw = pd.read_excel(up_bangke, sheet_name='Chi tiết_Đối soát') if 'Chi tiết_Đối soát' in xls_bk.sheet_names else pd.DataFrame()
+        # Lọc danh sách các lệnh ĐÃ ĐÓNG từ MasterData
+        df_master_dong = df_master[df_master['Trạng thái'] == 'Đã đóng'].copy()
+        set_master_dong = set(df_master_dong['Số lệnh sửa chữa'].apply(norm_lsc_key))
 
-        date_map = {}
-        if len(df_ct_raw) > 0 and 'WO' in df_ct_raw.columns:
-            date_col = next((c for c in df_ct_raw.columns if 'Approved' in str(c) or 'Duyệt' in str(c)), 'WC- Approved')
-            df_ct_clean = df_ct_raw.dropna(subset=['WO']).copy()
-            for _, r_c in df_ct_clean.iterrows():
-                w_k = norm_lsc_key(r_c['WO'])
-                d_val = str(r_c[date_col])[:10]
-                if d_val and d_val.lower() not in ['nan', 'none', 'nat']:
-                    date_map[w_k] = d_val
+        # Lọc chi tiết: chỉ lấy các dòng bảo hành (P/bill == 'W') của các lệnh ĐÃ ĐÓNG
+        df_w_dong = df_ct_in[(df_ct_in['P/bill classification'] == 'W') & (df_ct_in['lsc_norm'].isin(set_master_dong))].copy()
 
-        if len(df_s2_raw) > 0:
-            total_wo = len(df_s2_raw)
-            tien_nm_total = df_s2_raw['Nhà máy'].sum()
-            tien_ds_total = df_s2_raw['Đối soát'].sum()
-            
-            diff_mask = df_s2_raw.iloc[:, 3] != 0
-            df_diff = df_s2_raw[diff_mask].copy()
-            df_ok = df_s2_raw[~diff_mask].copy()
-            
-            tien_treo = tien_ds_total - tien_nm_total
+        # Tập hợp lệnh trong ĐXBH
+        set_dx_lsc = set(df_dx_in['lsc_norm'].unique())
+        set_w_lsc = set(df_w_dong['lsc_norm'].unique())
 
-            c_k1, c_k2, c_k3, c_k4 = st.columns(4)
-            c_k1.metric("💰 Tổng Tiền Quyết Toán (No VAT)", f"{tien_nm_total:,.0f} đ", f"Kỳ: {ma_phieu_bh}")
-            c_k2.metric("🟢 Đã Duyệt Đủ 100%", f"{len(df_ok)} / {total_wo} Lệnh", f"{len(df_ok)/total_wo*100:.1f}%")
-            c_k3.metric("🟡 Duyệt Thiếu (Chờ L2)", f"{len(df_diff)} Lệnh bị treo", f"-{tien_treo:,.0f} đ")
-            c_k4.metric("🧾 Dự Kiến Xuất Hóa Đơn", thang_hd, f"Phiếu: {ma_phieu_bh}")
+        lsc_chua_claim = set_w_lsc - set_dx_lsc
+        lsc_da_claim = set_w_lsc.intersection(set_dx_lsc)
 
-            st.markdown("---")
+        st.markdown("---")
+        # THẺ KPI
+        k1, k2, k3 = st.columns(3)
+        k1.metric("📌 Tổng Lệnh BH ĐÃ ĐÓNG", f"{len(set_w_lsc)} Lệnh", f"{len(df_w_dong)} dòng linh kiện/công")
+        k2.metric("🟢 Đã Gửi Đề Xuất Nhà Máy", f"{len(lsc_da_claim)} Lệnh")
+        k3.metric("🚨 Lệnh ĐÃ ĐÓNG Chưa Tạo ĐXBH", f"{len(lsc_chua_claim)} Lệnh BỊ SÓT", delta=f"-{len(lsc_chua_claim)} lệnh", delta_color="inverse")
 
-            # Bảng 1: Lệnh duyệt thiếu (Chờ duyệt lần 2)
-            st.error(f"🚨 **DANH SÁCH {len(df_diff)} LỆNH DUYỆT THIẾU (TREO CHỜ PHÊ DUYỆT LẦN 2):**")
-            diff_display = []
-            for _, r in df_diff.iterrows():
-                wo_str = str(r['Unnamed: 0'])
-                w_norm = norm_lsc_key(wo_str)
-                d_approved = date_map.get(w_norm, "2026-09-18")
-                diff_display.append({
-                    "Mã Lệnh Sửa Chữa (WO)": wo_str,
-                    "Thời Gian Duyệt": d_approved,
-                    "Kỳ Duyệt BH": ma_phieu_bh,
-                    "Đại Lý Đề Xuất (Claim)": float(r['Đối soát']),
-                    "Nhà Máy Duyệt Đợt 1": float(r['Nhà máy']),
-                    "Chênh Lệch Còn Thiếu": float(r.iloc[3]),
-                    "Kỳ Xuất HĐ": thang_hd,
-                    "Trạng Thái Đánh Giá": f"🟡 {r.iloc[4]}"
-                })
-            df_diff_show = pd.DataFrame(diff_display)
-            cfg_tbl_diff = {
-                "Đại Lý Đề Xuất (Claim)": st.column_config.NumberColumn(format="%,d đ"),
-                "Nhà Máy Duyệt Đợt 1": st.column_config.NumberColumn(format="%,d đ"),
-                "Chênh Lệch Còn Thiếu": st.column_config.NumberColumn(format="%,d đ")
-            }
-            st.dataframe(df_diff_show, use_container_width=True, hide_index=True, column_config=cfg_tbl_diff)
+        # KHỐI 1: CẢNH BÁO LỆNH CHƯA TẠO ĐXBH
+        if len(lsc_chua_claim) > 0:
+            st.error(f"🚨 **DANH SÁCH {len(lsc_chua_claim)} LỆNH ĐÃ ĐÓNG NHƯNG CHƯA TẠO ĐỀ XUẤT CLAIM TRÊN HỆ THỐNG NHÀ MÁY:**")
+            df_miss_view = df_master_dong[df_master_dong['Số lệnh sửa chữa'].apply(norm_lsc_key).isin(lsc_chua_claim)][
+                ['Số lệnh sửa chữa', 'Biển số', 'Cố vấn dịch vụ', 'Thời gian đóng LSC', 'BH hãng thanh toán']
+            ].copy()
+            st.dataframe(df_miss_view, use_container_width=True, hide_index=True)
 
-            # Bảng 2: Lệnh duyệt đủ
-            st.success(f"🟢 **DANH SÁCH LỆNH DUYỆT ĐỦ 100% TIỀN CLAIM ({len(df_ok)} LỆNH):**")
-            ok_display = []
-            for _, r in df_ok.iterrows():
-                wo_str = str(r['Unnamed: 0'])
-                w_norm = norm_lsc_key(wo_str)
-                d_approved = date_map.get(w_norm, "2026-08-30")
-                ok_display.append({
-                    "Mã Lệnh Sửa Chữa (WO)": wo_str,
-                    "Thời Gian Duyệt": d_approved,
-                    "Kỳ Duyệt BH": ma_phieu_bh,
-                    "Số Tiền Quyết Toán": float(r['Nhà máy']),
-                    "Kỳ Xuất HĐ": thang_hd,
-                    "Trạng Thái": "🟢 Đã duyệt đủ 100% (Khớp lệnh)"
-                })
-            df_ok_show = pd.DataFrame(ok_display)
-            cfg_tbl_ok = {"Số Tiền Quyết Toán": st.column_config.NumberColumn(format="%,d đ")}
-            st.dataframe(df_ok_show, use_container_width=True, hide_index=True, column_config=cfg_tbl_ok)
+        st.markdown("---")
+        st.subheader("📋 Bảng Tổng Hợp Chi Tiết Từng Hạng Mục (Sẵn sàng đẩy lên Google Sheets)")
 
-            # Nút đồng bộ lên Google Sheets
-            if is_admin and st.button("☁️ ĐỒNG BỘ KẾT QUẢ BẢNG KÊ NÀY LÊN GOOGLE SHEETS", type="primary"):
-                updated_cnt = 0
-                diff_map_save = {norm_lsc_key(r['Mã Lệnh Sửa Chữa (WO)']): r for r in diff_display}
-                ok_map_save = {norm_lsc_key(r['Mã Lệnh Sửa Chữa (WO)']): r for r in ok_display}
+        # Khớp thông tin phê duyệt từ ĐXBH vào từng dòng chi tiết DMS
+        col_dx_mavt = next((c for c in df_dx_in.columns if 'mã vật tư' in c.lower() or 'mã sản phẩm' in c.lower()), 'Mã vật tư')
+        col_dx_ngay = next((c for c in df_dx_in.columns if 'ngày phê duyệt' in c.lower()), 'Ngày phê duyệt')
+        col_dx_tt = next((c for c in df_dx_in.columns if 'trạng thái' in c.lower() and 'phê duyệt' not in c.lower()), 'Trạng thái')
+        col_dx_tien = next((c for c in df_dx_in.columns if 'tổng số tiền' in c.lower()), 'Tổng số tiền')
+        col_dx_dx = next((c for c in df_dx_in.columns if 'số đề xuất' in c.lower()), 'Số đề xuất bảo hành')
 
-                for idx in range(len(df_master)):
-                    k_w = norm_lsc_key(df_master.iloc[idx]['Số lệnh sửa chữa'])
-                    if k_w in diff_map_save:
-                        r_d = diff_map_save[k_w]
-                        df_master.iloc[idx, df_master.columns.get_loc('Phê duyệt bảo hành')] = f"Chờ PD L2 ({ma_phieu_bh})"
-                        df_master.iloc[idx, df_master.columns.get_loc('Ghi chú')] = (
-                            f"{ma_phieu_bh} duyệt {r_d['Thời Gian Duyệt']}: {r_d['Nhà Máy Duyệt Đợt 1']:,.0f} đ "
-                            f"(Treo {abs(r_d['Chênh Lệch Còn Thiếu']):,.0f} đ). Xuất HĐ {thang_hd}."
-                        )
-                        updated_cnt += 1
-                    elif k_w in ok_map_save:
-                        r_o = ok_map_save[k_w]
-                        df_master.iloc[idx, df_master.columns.get_loc('Phê duyệt bảo hành')] = f"Đã duyệt đủ ({ma_phieu_bh})"
-                        df_master.iloc[idx, df_master.columns.get_loc('Ghi chú')] = (
-                            f"{ma_phieu_bh} duyệt {r_o['Thời Gian Duyệt']}: {r_o['Số Tiền Quyết Toán']:,.0f} đ (Đủ 100%). Xuất HĐ {thang_hd}."
-                        )
-                        updated_cnt += 1
+        df_dx_in['mavt_norm'] = df_dx_in[col_dx_mavt].astype(str).str.strip().str.upper()
+        df_w_dong['masp_norm'] = df_w_dong['Mã sản phẩm'].astype(str).str.strip().str.upper()
 
-                save_data_to_gsheets(df_master)
-                st.success(f"✅ ĐÃ ĐỒNG BỘ THÀNH CÔNG {updated_cnt} LỆNH LÊN GOOGLE SHEETS!")
-                st.rerun()
+        # Merge thông tin duyệt
+        df_export_gsheet = pd.merge(
+            df_w_dong,
+            df_dx_in[['lsc_norm', 'mavt_norm', col_dx_dx, col_dx_ngay, col_dx_tt, col_dx_tien]],
+            left_on=['lsc_norm', 'masp_norm'],
+            right_on=['lsc_norm', 'mavt_norm'],
+            how='left'
+        )
+
+        # Tính tiền xưởng
+        df_export_gsheet['Tiền xưởng (DMS)'] = df_export_gsheet.apply(
+            lambda r: r['Tổng tiền phụ tùng'] if pd.notna(r['Tổng tiền phụ tùng']) and float(r['Tổng tiền phụ tùng']) > 0 else r['Tổng tiền nhân công'],
+            axis=1
+        )
+        df_export_gsheet['Tiền claim (ĐXBH)'] = pd.to_numeric(clean_tien_series(df_export_gsheet[col_dx_tien]), errors='coerce').fillna(0)
+        df_export_gsheet['Trạng thái claim'] = df_export_gsheet[col_dx_tt].fillna('Chưa gửi claim')
+        df_export_gsheet['Ngày phê duyệt'] = df_export_gsheet[col_dx_ngay].fillna('')
+        df_export_gsheet['Số đề xuất'] = df_export_gsheet[col_dx_dx].fillna('')
+
+        cols_final_gsheet = [
+            'Lệnh sửa chữa', 'Số khung', 'Cố vấn dịch vụ', 'Loại sản phẩm',
+            'Mã sản phẩm', 'Mô tả sản phẩm', 'Số lượng/Nhân công',
+            'Tiền xưởng (DMS)', 'Tiền claim (ĐXBH)', 'Trạng thái claim',
+            'Ngày phê duyệt', 'Số đề xuất'
+        ]
+        df_final = df_export_gsheet[cols_final_gsheet].copy().reset_index(drop=True)
+
+        cfg_final = {
+            "Tiền xưởng (DMS)": st.column_config.NumberColumn(format="%,d đ"),
+            "Tiền claim (ĐXBH)": st.column_config.NumberColumn(format="%,d đ")
+        }
+        st.dataframe(df_final, use_container_width=True, hide_index=True, column_config=cfg_final)
+
+        # NÚT ĐẨY THẲNG LÊN GOOGLE SHEETS
+        if is_admin:
+            if st.button("☁️ ĐẨY TOÀN BỘ BẢNG CHI TIẾT NÀY LÊN GOOGLE SHEET (Sheet: ChiTiet_BaoHanh)", type="primary", use_container_width=True):
+                p_bar = st.progress(0)
+                txt_bar = st.empty()
+                txt_bar.write("⏳ Đang chuẩn bị dữ liệu và kết nối Google Sheets...")
+                
+                # Format dữ liệu dạng text sạch sẽ
+                df_to_push = df_final.copy()
+                for c in df_to_push.columns:
+                    if c in ['Tiền xưởng (DMS)', 'Tiền claim (ĐXBH)']:
+                        df_to_push[c] = pd.to_numeric(df_to_push[c], errors='coerce').fillna(0)
+                    else:
+                        df_to_push[c] = df_to_push[c].fillna('').astype(str)
+
+                p_bar.progress(50)
+                txt_bar.write("⏳ Đang ghi dữ liệu vào sheet 'ChiTiet_BaoHanh'...")
+                
+                conn.update(worksheet="ChiTiet_BaoHanh", data=df_to_push)
+                
+                p_bar.progress(100)
+                txt_bar.empty()
+                st.success(f"✅ ĐÃ ĐẨY THÀNH CÔNG {len(df_to_push)} DÒNG CHI TIẾT LÊN GOOGLE SHEETS TẠI SHEET 'ChiTiet_BaoHanh'!")
+                st.balloons()
 
 # ==================== CÁC TAB CHỨC NĂNG KHÁC ====================
 if is_admin:
