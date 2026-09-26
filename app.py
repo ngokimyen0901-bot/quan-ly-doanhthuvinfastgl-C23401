@@ -531,11 +531,136 @@ if is_admin:
             st.success("✅ Đã nạp thành công lên Google Sheets!")
             st.rerun()
 
-    # TAB 3: KHỚP HÓA ĐƠN
+   # TAB 3: KHỚP HÓA ĐƠN KẾ TOÁN
     with tab_inv:
-        st.subheader("Khớp file Hóa Đơn kế toán với Hệ Thống")
-        st.caption("Tự động gộp tất cả hóa đơn cùng 1 LSC: nối số HĐ bằng dấu phẩy và cộng dồn tiền chính xác 100%.")
+        st.subheader("🧾 Khớp File Hóa Đơn Kế Toán với Hệ Thống")
+        st.caption("Tự động nhận diện mã LSC từ file hóa đơn, gộp nhiều hóa đơn cùng 1 xe (nối số HĐ và cộng dồn tiền), sau đó cập nhật trực tiếp lên Google Sheets.")
 
+        up_hd = st.file_uploader("📥 Kéo thả file Hóa Đơn kế toán vào đây (Excel hoặc CSV):", type=['xlsx', 'xls', 'csv'], key="up_hd_main")
+
+        if up_hd:
+            try:
+                if up_hd.name.endswith('.csv'):
+                    df_hd_raw = pd.read_csv(up_hd, low_memory=False)
+                else:
+                    df_hd_raw = pd.read_excel(up_hd)
+                
+                df_hd_raw.columns = [str(c).strip() for c in df_hd_raw.columns]
+
+                # 1. Tự động tìm kiếm các cột quan trọng
+                col_so_hd = next((c for c in df_hd_raw.columns if any(k in str(c).lower() for k in ['số hóa đơn', 'số hđ', 'inv_no', 'so_hd', 'số ct'])), None)
+                col_ngay_hd = next((c for c in df_hd_raw.columns if any(k in str(c).lower() for k in ['ngày hóa đơn', 'ngày hđ', 'ngày lập', 'ngày ct', 'inv_date', 'ngày xuất'])), None)
+                col_tien_hd = next((c for c in df_hd_raw.columns if any(k in str(c).lower() for k in ['tổng tiền', 'thành tiền', 'tổng thanh toán', 'tiền sau thuế', 'giá trị'])), None)
+                col_lsc_hd = next((c for c in df_hd_raw.columns if any(k in str(c).lower() for k in ['lệnh sửa chữa', 'số lệnh', 'lsc', 'wo', 'mã lệnh'])), None)
+
+                # Nếu không có cột LSC riêng, tìm trong cột diễn giải / ghi chú
+                if not col_lsc_hd:
+                    col_lsc_hd = next((c for c in df_hd_raw.columns if any(k in str(c).lower() for k in ['diễn giải', 'nội dung', 'ghi chú', 'description'])), None)
+
+                c_sel1, c_sel2, c_sel3, c_sel4 = st.columns(4)
+                with c_sel1:
+                    sel_so_hd = st.selectbox("Cột Số HĐ:", df_hd_raw.columns, index=df_hd_raw.columns.get_loc(col_so_hd) if col_so_hd else 0)
+                with c_sel2:
+                    sel_ngay_hd = st.selectbox("Cột Ngày HĐ:", df_hd_raw.columns, index=df_hd_raw.columns.get_loc(col_ngay_hd) if col_ngay_hd else 0)
+                with c_sel3:
+                    sel_tien_hd = st.selectbox("Cột Tiền HĐ:", df_hd_raw.columns, index=df_hd_raw.columns.get_loc(col_tien_hd) if col_tien_hd else 0)
+                with c_sel4:
+                    sel_lsc_hd = st.selectbox("Cột Mã LSC / Ghi chú:", df_hd_raw.columns, index=df_hd_raw.columns.get_loc(col_lsc_hd) if col_lsc_hd else 0)
+
+                # 2. Xử lý bóc tách mã WO
+                def trich_xuat_wo(val):
+                    if pd.isna(val): return ""
+                    s = str(val).upper()
+                    # Tìm mẫu C23401-WO-xxxxxx-xxxx hoặc WO-xxxxxx-xxxx
+                    m = re.search(r'([A-Z0-9]*WO[-0-9A-Z]+)', s)
+                    if m:
+                        return norm_lsc_key(m.group(1))
+                    return norm_lsc_key(s)
+
+                df_hd_work = df_hd_raw.copy()
+                df_hd_work['lsc_norm'] = df_hd_work[sel_lsc_hd].apply(trich_xuat_wo)
+                df_hd_work = df_hd_work[df_hd_work['lsc_norm'].str.len() > 3]
+
+                df_hd_work['so_hd_clean'] = df_hd_work[sel_so_hd].fillna('').astype(str).str.strip().str.lstrip('0')
+                df_hd_work['ngay_hd_clean'] = df_hd_work[sel_ngay_hd].apply(clean_ngay_chuan)
+                df_hd_work['tien_hd_num'] = pd.to_numeric(clean_tien_series(df_hd_work[sel_tien_hd]), errors='coerce').fillna(0)
+
+                # 3. Gom nhóm theo LSC: Nối số HĐ và cộng dồn tiền
+                hd_grouped = df_hd_work.groupby('lsc_norm').agg({
+                    'so_hd_clean': lambda x: ", ".join(sorted(list(set(filter(None, x))))),
+                    'ngay_hd_clean': lambda x: next((d for d in x if d), ""),
+                    'tien_hd_num': 'sum'
+                }).reset_index()
+
+                # 4. Đối chiếu với MasterData
+                master_dict = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
+                
+                matched_rows = []
+                unmatched_rows = []
+
+                for _, r in hd_grouped.iterrows():
+                    k = r['lsc_norm']
+                    if k in master_dict:
+                        m_idx = master_dict[k]
+                        row_m = df_master.iloc[m_idx]
+                        matched_rows.append({
+                            "Số Lệnh Sửa Chữa": row_m['Số lệnh sửa chữa'],
+                            "Biển Số": row_m['Biển số'],
+                            "Cố Vấn Dịch Vụ": row_m['Cố vấn dịch vụ'],
+                            "Số HĐ Mới Khớp": r['so_hd_clean'],
+                            "Ngày HĐ Mới": r['ngay_hd_clean'],
+                            "Tiền HĐ Mới Khớp": r['tien_hd_num'],
+                            "Tiền Thanh Toán DMS": row_m['Số tiền thanh toán cuối'],
+                            "Số HĐ Cũ Trên Hệ Thống": row_m['Số hóa đơn']
+                        })
+                    else:
+                        unmatched_rows.append({
+                            "Mã LSC Từ File HĐ": k,
+                            "Số Hóa Đơn": r['so_hd_clean'],
+                            "Ngày Hóa Đơn": r['ngay_hd_clean'],
+                            "Tổng Tiền HĐ": r['tien_hd_num']
+                        })
+
+                st.markdown("---")
+                # Thẻ thống kê kết quả khớp
+                k_m1, k_m2, k_m3 = st.columns(3)
+                k_m1.metric("📑 Tổng Lệnh Trong File HĐ", f"{len(hd_grouped)} Lệnh")
+                k_m2.metric("🟢 Khớp Thành Công Với Hệ Thống", f"{len(matched_rows)} Lệnh")
+                k_m3.metric("🟡 Không Tìm Thấy Trong Hệ Thống", f"{len(unmatched_rows)} Lệnh")
+
+                if matched_rows:
+                    st.success(f"🟢 **DANH SÁCH {len(matched_rows)} LỆNH KHỚP THÀNH CÔNG (Sẵn sàng cập nhật):**")
+                    df_matched_show = pd.DataFrame(matched_rows)
+                    cfg_match = {
+                        "Tiền HĐ Mới Khớp": st.column_config.NumberColumn(format="%,d đ"),
+                        "Tiền Thanh Toán DMS": st.column_config.NumberColumn(format="%,d đ")
+                    }
+                    st.dataframe(df_matched_show, use_container_width=True, hide_index=True, column_config=cfg_match)
+
+                    # Nút bấm lưu lên Google Sheets
+                    if is_admin:
+                        if st.button("☁️ XÁC NHẬN CẬP NHẬT HÓA ĐƠN LÊN GOOGLE SHEETS", type="primary", use_container_width=True):
+                            update_cnt = 0
+                            for item in matched_rows:
+                                k_norm = norm_lsc_key(item['Số Lệnh Sửa Chữa'])
+                                if k_norm in master_dict:
+                                    idx_target = master_dict[k_norm]
+                                    df_master.at[df_master.index[idx_target], 'Số hóa đơn'] = str(item['Số HĐ Mới Khớp'])
+                                    df_master.at[df_master.index[idx_target], 'Ngày xuất hóa đơn'] = str(item['Ngày HĐ Mới'])
+                                    df_master.at[df_master.index[idx_target], 'Giá trị xuất hóa đơn'] = float(item['Tiền HĐ Mới Khớp'])
+                                    update_cnt += 1
+
+                            save_data_to_gsheets(df_master)
+                            st.success(f"✅ ĐÃ CẬP NHẬT THÀNH CÔNG {update_cnt} HÓA ĐƠN LÊN GOOGLE SHEETS!")
+                            st.rerun()
+
+                if unmatched_rows:
+                    with st.expander(f"⚠️ Xem {len(unmatched_rows)} hóa đơn không khớp được với LSC trên hệ thống:"):
+                        df_unmatch_show = pd.DataFrame(unmatched_rows)
+                        st.dataframe(df_unmatch_show, use_container_width=True, hide_index=True)
+
+            except Exception as e:
+                st.error(f"❌ Có lỗi khi đọc file Hóa Đơn: {str(e)}")
     # TAB 5: QUẢN LÝ GSM
     with tab_gsm_import:
         st.subheader("🚕 Quản Lý Công NỢ GSM (Đồng bộ sheet GSM_List)")
