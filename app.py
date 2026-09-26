@@ -362,49 +362,98 @@ with tab_work:
 if is_admin:
     with tab_import:
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
-        up_db = st.file_uploader("Kéo thả file Database mới vào đây", type=['csv', 'xlsx', 'xls'], key='up_dms_fixed')
+        up_db = st.file_uploader("Kéo thả file Database mới vào đây", type=['csv', 'xlsx', 'xls'], key='up_dms_final_stable')
         
-        if up_db and st.button("🚀 BẮT ĐẦU NẠP VÀ LƯU LÊN GOOGLE SHEETS", type="primary"):
+        if up_db and st.button("🚀 BẮT ĐẦU NẠP VÀ LƯU LÊN GOOGLE SHEETS", type="primary", use_container_width=True):
+            p_bar = st.progress(0)
+            txt_status = st.empty()
             fname_lower = up_db.name.lower()
+            
             try:
+                txt_status.info("⏳ [1/5] Đang đọc và giải mã file dữ liệu...")
+                p_bar.progress(15)
+                time.sleep(0.3)
+                
                 if fname_lower.endswith(('.xlsx', '.xls')):
-                    df_raw = pd.read_excel(up_db)
+                    excel_file = pd.ExcelFile(up_db)
+                    df_raw = pd.read_excel(up_db, sheet_name=excel_file.sheet_names[0])
                 else:
                     try:
                         df_raw = pd.read_csv(up_db, encoding='utf-8', low_memory=False)
                     except UnicodeDecodeError:
                         df_raw = pd.read_csv(up_db, encoding='latin1', low_memory=False)
 
+                df_raw.columns = [str(c).strip() for c in df_raw.columns]
+                col_lsc_src = next((c for c in df_raw.columns if any(k in str(c).lower() for k in ['số lệnh', 'lệnh sửa chữa', 'lsc', 'wo'])), None)
+                
+                if not col_lsc_src:
+                    p_bar.empty()
+                    txt_status.empty()
+                    st.error("❌ Không tìm thấy cột Lệnh Sửa Chữa trong file vừa tải lên!")
+                    st.stop()
+
+                txt_status.info(f"⏳ [2/5] Đã đọc thành công {len(df_raw)} dòng. Đang chuẩn hóa...")
+                p_bar.progress(40)
+                time.sleep(0.3)
+
                 df_inc = pd.DataFrame()
-                for c in TAT_CA_COT: 
-                    df_inc[c] = df_raw[c] if c in df_raw.columns else ""
+                for c in TAT_CA_COT:
+                    if c == 'Số lệnh sửa chữa':
+                        df_inc[c] = df_raw[col_lsc_src].astype(str).apply(clean_lsc_giu_gach)
+                    elif c in df_raw.columns:
+                        df_inc[c] = df_raw[c]
+                    else:
+                        df_inc[c] = ""
                 
-                for c in COT_TIEN: 
+                for c in COT_TIEN:
                     df_inc[c] = pd.to_numeric(clean_tien_series(df_inc[c]), errors='coerce').fillna(0)
-                
-                df_inc['Số lệnh sửa chữa'] = df_inc['Số lệnh sửa chữa'].astype(str).apply(clean_lsc_giu_gach)
+
                 df_inc['Phân loại KH'] = "KH Thông Thường"
                 df_inc = loc_chuan_tu_29_thang_8(chuan_hoa_kieu_du_lieu(dong_bo_hoa_don(df_inc)))
-                
+
+                txt_status.info("⏳ [3/5] Đang so khớp với MasterData hiện tại...")
+                p_bar.progress(65)
+                time.sleep(0.3)
+
                 master_norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 new_recs = []
+                updated_status_cnt = 0
+
                 for _, r in df_inc.iterrows():
                     k = norm_lsc_key(r['Số lệnh sửa chữa'])
-                    if k not in master_norm_map: 
+                    if k not in master_norm_map:
                         new_recs.append(r)
                     else:
                         m_idx = master_norm_map[k]
-                        df_master.iloc[m_idx, df_master.columns.get_loc('Trạng thái')] = str(r['Trạng thái'])
-                
-                if new_recs: 
+                        old_st = str(df_master.iloc[m_idx]['Trạng thái']).strip()
+                        new_st = str(r['Trạng thái']).strip()
+                        if old_st != new_st:
+                            df_master.iloc[m_idx, df_master.columns.get_loc('Trạng thái')] = new_st
+                            updated_status_cnt += 1
+
+                if new_recs:
                     df_master = pd.concat([df_master, pd.DataFrame(new_recs)], ignore_index=True)
+
+                txt_status.info("⏳ [4/5] Đang ghi và đồng bộ lên Google Sheets...")
+                p_bar.progress(85)
                 
                 save_data_to_gsheets(df_master)
-                st.success("✅ Đã nạp và cập nhật thành công lên Google Sheets!")
-                st.rerun()
+
+                p_bar.progress(100)
+                txt_status.empty()
+                
+                st.success(
+                    f"✅ **NẠP VÀ LƯU THÀNH CÔNG LÊN GOOGLE SHEETS!**\n\n"
+                    f"* Thêm mới: **{len(new_recs)} lệnh**\n"
+                    f"* Cập nhật trạng thái: **{updated_status_cnt} lệnh**\n"
+                    f"* Tổng cộng trong hệ thống: **{len(df_master)} lệnh**"
+                )
+                st.balloons()
 
             except Exception as e:
-                st.error(f"❌ Lỗi khi đọc file: {str(e)}")
+                p_bar.empty()
+                txt_status.empty()
+                st.error(f"❌ Có lỗi khi xử lý file: {str(e)}")
 
 # ==================== TAB 3: KHỚP HÓA ĐƠN KẾ TOÁN ====================
 if is_admin:
@@ -412,7 +461,7 @@ if is_admin:
         st.subheader("🧾 Khớp File Hóa Đơn Kế Toán với Hệ Thống")
         st.caption("Tự động nhận diện mã LSC từ file hóa đơn, gộp nhiều hóa đơn cùng 1 xe (nối số HĐ và cộng dồn tiền), sau đó cập nhật trực tiếp lên Google Sheets.")
 
-        up_hd = st.file_uploader("📥 Kéo thả file Hóa Đơn kế toán vào đây (Excel hoặc CSV):", type=['xlsx', 'xls', 'csv'], key="up_hd_main_full")
+        up_hd = st.file_uploader("📥 Kéo thả file Hóa Đơn kế toán vào đây (Excel hoặc CSV):", type=['xlsx', 'xls', 'csv'], key="up_hd_main_final")
 
         if up_hd:
             try:
@@ -539,9 +588,9 @@ with tab_bh_wcs:
 
     c_up1, c_up2 = st.columns(2)
     with c_up1:
-        up_dx = st.file_uploader("📥 1. File DEXUATBAOHANH (Cổng Nhà Máy)", type=['csv', 'xlsx', 'xls'], key="up_dx_auto_full")
+        up_dx = st.file_uploader("📥 1. File DEXUATBAOHANH (Cổng Nhà Máy)", type=['csv', 'xlsx', 'xls'], key="up_dx_final_ok")
     with c_up2:
-        up_ct = st.file_uploader("📥 2. File CHITIETLENHSUACHUA (DMS Xưởng)", type=['csv', 'xlsx', 'xls'], key="up_ct_auto_full")
+        up_ct = st.file_uploader("📥 2. File CHITIETLENHSUACHUA (DMS Xưởng)", type=['csv', 'xlsx', 'xls'], key="up_ct_final_ok")
 
     if up_dx and up_ct:
         try:
@@ -566,14 +615,14 @@ with tab_bh_wcs:
             df_dx_in['lsc_norm'] = df_dx_in[col_dx_lsc].apply(norm_lsc_key)
             df_ct_in['lsc_norm'] = df_ct_in[col_ct_lsc].apply(norm_lsc_key)
 
-            # LẤY DANH SÁCH LỆNH "ĐÃ ĐÓNG" TỪ MASTERDATA & TỪ FILE CHI TIẾT
+            # Lấy danh sách lệnh ĐÃ ĐÓNG từ MasterData
             status_closed_set = set(df_master[df_master['Trạng thái'].str.strip() == 'Đã đóng']['Số lệnh sửa chữa'].apply(norm_lsc_key))
 
-            # LỌC CHỈ LẤY P/bill == 'W'
+            # Chỉ lấy phân loại W
             col_pb = next((c for c in df_ct_in.columns if 'classification' in c.lower() or 'p/bill' in c.lower()), 'P/bill classification')
             df_w_raw = df_ct_in[df_ct_in[col_pb].astype(str).str.strip().str.upper() == 'W'].copy()
 
-            # KIỂM TRA ĐIỀU KIỆN CHỈ LẤY LỆNH ĐÃ ĐÓNG (LOẠI HOÀN TOÀN BÁO GIÁ, ĐÃ HỦY, SẴN SÀNG GIAO XE)
+            # Lọc nghiêm ngặt: Chỉ lấy lệnh ĐÃ ĐÓNG (Loại hoàn toàn Báo giá, Sẵn sàng giao xe, Đã hủy)
             def check_strictly_closed(norm_k, row_r):
                 if norm_k in status_closed_set: return True
                 col_dd = next((c for c in row_r.index if 'đóng' in str(c).lower()), None)
@@ -590,13 +639,11 @@ with tab_bh_wcs:
             lsc_da_claim = set_w_lsc.intersection(set_dx_lsc)
 
             st.markdown("---")
-            # THẺ KPI
             k1, k2, k3 = st.columns(3)
             k1.metric("📌 Tổng Lệnh BH ĐÃ ĐÓNG (W)", f"{len(set_w_lsc)} Lệnh", f"{len(df_w_target)} dòng linh kiện/công")
             k2.metric("🟢 Đã Gửi Đề Xuất Nhà Máy", f"{len(lsc_da_claim)} Lệnh")
             k3.metric("🚨 Lệnh ĐÃ ĐÓNG Chưa Tạo ĐXBH", f"{len(lsc_chua_claim)} Lệnh BỊ SÓT", delta=f"-{len(lsc_chua_claim)} lệnh", delta_color="inverse")
 
-            # KHỐI 1: CẢNH BÁO LỆNH CHƯA TẠO CLAIM
             if len(lsc_chua_claim) > 0:
                 st.error(f"🚨 **DANH SÁCH {len(lsc_chua_claim)} LỆNH ĐÃ ĐÓNG NHƯNG CHƯA TẠO CLAIM TRÊN CỔNG NHÀ MÁY:**")
                 df_miss_summary = df_w_target[df_w_target['lsc_norm'].isin(lsc_chua_claim)].groupby(col_ct_lsc).agg({
@@ -651,7 +698,7 @@ with tab_bh_wcs:
             cols_valid = [c for c in cols_final_gsheet if c in df_export_gsheet.columns]
             df_final = df_export_gsheet[cols_valid].copy().reset_index(drop=True)
 
-            # CƠ CHẾ TỰ ĐỘNG ĐỒNG BỘ 100% LÊN GOOGLE SHEETS
+            # TỰ ĐỘNG ĐỒNG BỘ 100% SANG GOOGLE SHEETS
             current_files_hash = hashlib.md5((up_dx.name + str(up_dx.size) + up_ct.name + str(up_ct.size)).encode()).hexdigest()
             
             if "last_synced_bh_hash" not in st.session_state:
@@ -670,7 +717,6 @@ with tab_bh_wcs:
                     st.session_state.last_synced_bh_hash = current_files_hash
                     st.toast(f"✅ Đã tự động đồng bộ {len(df_to_push)} dòng sang sheet ChiTiet_BaoHanh!", icon="🚀")
 
-            # Nút Link trực tiếp mở Google Sheets
             c_status, c_link = st.columns([7, 3])
             with c_status:
                 st.success(f"🟢 Dữ liệu đang được kết nối và đồng bộ tự động với Google Sheets ({len(df_final)} dòng chi tiết).")
