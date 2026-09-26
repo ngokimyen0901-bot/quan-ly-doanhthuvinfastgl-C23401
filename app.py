@@ -461,38 +461,61 @@ if is_admin:
         st.subheader("🧾 Khớp File Hóa Đơn Kế Toán với Hệ Thống")
         st.caption("Tự động nhận diện mã LSC từ file hóa đơn, gộp nhiều hóa đơn cùng 1 xe (nối số HĐ và cộng dồn tiền), sau đó cập nhật trực tiếp lên Google Sheets.")
 
-        up_hd = st.file_uploader("📥 Kéo thả file Hóa Đơn kế toán vào đây (Excel hoặc CSV):", type=['xlsx', 'xls', 'csv'], key="up_hd_main_final")
+        up_hd = st.file_uploader("📥 Kéo thả file Hóa Đơn kế toán vào đây (Excel hoặc CSV):", type=['xlsx', 'xls', 'csv'], key="up_hd_smart_header")
 
         if up_hd:
             try:
                 fname_hd = up_hd.name.lower()
+                
+                # 1. Đọc thử file và tự động dò tìm dòng tiêu đề thật (Header Detection)
                 if fname_hd.endswith(('.xlsx', '.xls')):
-                    df_hd_raw = pd.read_excel(up_hd)
+                    excel_file = pd.ExcelFile(up_hd)
+                    df_preview = pd.read_excel(up_hd, sheet_name=excel_file.sheet_names[0], header=None, nrows=15)
                 else:
                     try:
-                        df_hd_raw = pd.read_csv(up_hd, encoding='utf-8', low_memory=False)
+                        df_preview = pd.read_csv(up_hd, header=None, nrows=15, encoding='utf-8')
                     except UnicodeDecodeError:
-                        df_hd_raw = pd.read_csv(up_hd, encoding='latin1', low_memory=False)
-                
+                        df_preview = pd.read_csv(up_hd, header=None, nrows=15, encoding='latin1')
+
+                # Tìm hàng nào chứa các từ khóa tiêu đề phổ biến
+                header_idx = 0
+                for idx, row in df_preview.iterrows():
+                    row_text = " ".join([str(v).lower() for v in row.values if pd.notna(v)])
+                    if any(kw in row_text for kw in ['hóa đơn', 'hoa don', 'số hđ', 'so hd', 'lệnh', 'lenh', 'thành tiền', 'tổng tiền', 'ngày']):
+                        header_idx = idx
+                        break
+
+                # Đọc lại file với đúng dòng tiêu đề vừa tìm được
+                up_hd.seek(0)
+                if fname_hd.endswith(('.xlsx', '.xls')):
+                    df_hd_raw = pd.read_excel(up_hd, sheet_name=excel_file.sheet_names[0], header=header_idx)
+                else:
+                    try:
+                        df_hd_raw = pd.read_csv(up_hd, header=header_idx, encoding='utf-8', low_memory=False)
+                    except UnicodeDecodeError:
+                        df_hd_raw = pd.read_csv(up_hd, header=header_idx, encoding='latin1', low_memory=False)
+
+                # Làm sạch danh sách cột
                 df_hd_raw.columns = [str(c).strip() for c in df_hd_raw.columns]
+                cols_valid = [c for c in df_hd_raw.columns if not c.startswith('Unnamed:') and c != 'nan']
+                if not cols_valid:
+                    cols_valid = df_hd_raw.columns.tolist()
 
-                col_so_hd = next((c for c in df_hd_raw.columns if any(k in str(c).lower() for k in ['số hóa đơn', 'số hđ', 'inv_no', 'so_hd', 'số ct'])), None)
-                col_ngay_hd = next((c for c in df_hd_raw.columns if any(k in str(c).lower() for k in ['ngày hóa đơn', 'ngày hđ', 'ngày lập', 'ngày ct', 'inv_date', 'ngày xuất'])), None)
-                col_tien_hd = next((c for c in df_hd_raw.columns if any(k in str(c).lower() for k in ['tổng tiền', 'thành tiền', 'tổng thanh toán', 'tiền sau thuế', 'giá trị'])), None)
-                col_lsc_hd = next((c for c in df_hd_raw.columns if any(k in str(c).lower() for k in ['lệnh sửa chữa', 'số lệnh', 'lsc', 'wo', 'mã lệnh'])), None)
-
-                if not col_lsc_hd:
-                    col_lsc_hd = next((c for c in df_hd_raw.columns if any(k in str(c).lower() for k in ['diễn giải', 'nội dung', 'ghi chú', 'description'])), None)
+                # Tự động gợi ý cột chính xác
+                col_so_hd = next((c for c in cols_valid if any(k in c.lower() for k in ['số hóa đơn', 'số hđ', 'inv_no', 'so_hd', 'số ct', 'số'])), cols_valid[0])
+                col_ngay_hd = next((c for c in cols_valid if any(k in c.lower() for k in ['ngày hóa đơn', 'ngày hđ', 'ngày lập', 'ngày ct', 'inv_date', 'ngày xuất', 'ngày'])), cols_valid[0])
+                col_tien_hd = next((c for c in cols_valid if any(k in c.lower() for k in ['tổng tiền', 'thành tiền', 'tổng thanh toán', 'tiền sau thuế', 'giá trị', 'tiền'])), cols_valid[0])
+                col_lsc_hd = next((c for c in cols_valid if any(k in c.lower() for k in ['lệnh sửa chữa', 'số lệnh', 'lsc', 'wo', 'mã lệnh', 'diễn giải', 'nội dung', 'ghi chú'])), cols_valid[0])
 
                 c_sel1, c_sel2, c_sel3, c_sel4 = st.columns(4)
                 with c_sel1:
-                    sel_so_hd = st.selectbox("Cột Số HĐ:", df_hd_raw.columns, index=df_hd_raw.columns.get_loc(col_so_hd) if col_so_hd else 0)
+                    sel_so_hd = st.selectbox("Cột Số HĐ:", cols_valid, index=cols_valid.index(col_so_hd))
                 with c_sel2:
-                    sel_ngay_hd = st.selectbox("Cột Ngày HĐ:", df_hd_raw.columns, index=df_hd_raw.columns.get_loc(col_ngay_hd) if col_ngay_hd else 0)
+                    sel_ngay_hd = st.selectbox("Cột Ngày HĐ:", cols_valid, index=cols_valid.index(col_ngay_hd))
                 with c_sel3:
-                    sel_tien_hd = st.selectbox("Cột Tiền HĐ:", df_hd_raw.columns, index=df_hd_raw.columns.get_loc(col_tien_hd) if col_tien_hd else 0)
+                    sel_tien_hd = st.selectbox("Cột Tiền HĐ:", cols_valid, index=cols_valid.index(col_tien_hd))
                 with c_sel4:
-                    sel_lsc_hd = st.selectbox("Cột Mã LSC / Ghi chú:", df_hd_raw.columns, index=df_hd_raw.columns.get_loc(col_lsc_hd) if col_lsc_hd else 0)
+                    sel_lsc_hd = st.selectbox("Cột Mã LSC / Ghi chú:", cols_valid, index=cols_valid.index(col_lsc_hd))
 
                 def trich_xuat_wo(val):
                     if pd.isna(val): return ""
@@ -509,6 +532,7 @@ if is_admin:
                 df_hd_work['ngay_hd_clean'] = df_hd_work[sel_ngay_hd].apply(clean_ngay_chuan)
                 df_hd_work['tien_hd_num'] = pd.to_numeric(clean_tien_series(df_hd_work[sel_tien_hd]), errors='coerce').fillna(0)
 
+                # Gom nhóm: Nối nhiều số HĐ bằng dấu phẩy và cộng dồn tiền
                 hd_grouped = df_hd_work.groupby('lsc_norm').agg({
                     'so_hd_clean': lambda x: ", ".join(sorted(list(set(filter(None, x))))),
                     'ngay_hd_clean': lambda x: next((d for d in x if d), ""),
