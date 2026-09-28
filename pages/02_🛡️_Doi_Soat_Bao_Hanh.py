@@ -50,9 +50,21 @@ def tinh_ky_quyet_toan_bh(ngay_val):
     return f"Kỳ Tháng {thang:02d}/{nam}"
 
 def xoa_sach_emoji(val):
+    """Làm sạch emoji khi đẩy dữ liệu lên Google Sheets"""
     if pd.isna(val) or val is None: return ""
     s = str(val)
     return re.sub(r'[🔴🔵🟢⚪⏳⌛🚨💡🛠️🧾📋🔄🔎📌🚗🚕❌⚠️✅]', '', s).strip()
+
+def to_mau_trang_thai(val):
+    """Tô màu trạng thái trực tiếp trên web theo yêu cầu"""
+    s = str(val).lower()
+    if any(k in s for k in ['trả về', 'từ chối', 'không duyệt', 'hủy', 'chưa upload', 'chưa đề xuất']):
+        return 'background-color: #ffebee; color: #c62828; font-weight: bold;' # Màu đỏ cảnh báo
+    elif any(k in s for k in ['chờ', 'hậu kiểm', 'chờ duyệt']):
+        return 'background-color: #e3f2fd; color: #1565c0; font-weight: bold;' # Màu xanh pastel
+    elif any(k in s for k in ['đã duyệt', 'duyệt cổng', 'chốt bảng kê']):
+        return 'background-color: #e8f5e9; color: #2e7d32; font-weight: bold;' # Màu xanh lá pastel
+    return ''
 
 if "ds_bo_qua" not in st.session_state:
     st.session_state.ds_bo_qua = set()
@@ -200,7 +212,9 @@ if up_bh_ct and up_bh_dx:
                 return r.get('Kỳ_WCS_Duyệt', ky_wcs_ten_txt)
             ky_dx = r.get('Kỳ_Tính_Toán_DXBH', 'Chưa duyệt')
             if ky_dx != 'Chưa duyệt':
-                return f"Duyệt Cổng VF ({ky_dx} - Chờ Bảng Kê WCS)"
+                m_t = re.search(r'Tháng \d{1,2}/\d{4}', ky_dx)
+                t_str = m_t.group(0) if m_t else ky_dx
+                return f"Cổng VF ({t_str} - Chờ WCS)"
             return "Chưa duyệt"
 
         df_b_merged['WCS Số Kỳ Cụ Thể'] = df_b_merged.apply(dinh_danh_ky_cu_the_bh, axis=1)
@@ -208,23 +222,25 @@ if up_bh_ct and up_bh_dx:
         def gan_nhan_chuyen_sau_bh(r):
             lsc = r.get('lsc_norm')
             if lsc in st.session_state.ds_bo_qua:
-                return "BỎ QUA (Không theo dõi)"
+                return "⚪ BỎ QUA"
             if pd.isna(r.get(col_b_dx_so_dx)) or not str(r.get(col_b_dx_so_dx)).strip():
-                return "CHƯA UPLOAD ĐỀ XUẤT BH"
+                return "🔴 CHƯA UPLOAD ĐỀ XUẤT"
             tt_dx = str(r.get(col_b_dx_tt, '')).strip()
             tt_lower = tt_dx.lower()
             if any(k in tt_lower for k in ['trả về', 'từ chối', 'không duyệt', 'hủy']):
-                return tt_dx.upper()
+                return f"🔴 {tt_dx.upper()}"
             if pd.notna(r.get('Tien_WCS')) and clean_num_bh(r.get('Tien_WCS')) > 0:
-                return "ĐÃ DUYỆT (Chốt Bảng Kê WCS)"
-            if "cấp 3" in tt_lower and "chờ" in tt_lower: return "Chờ phê duyệt cấp 3"
-            if "cấp 2" in tt_lower and "chờ" in tt_lower: return "Chờ phê duyệt cấp 2"
-            if "cấp 1" in tt_lower and "chờ" in tt_lower: return "Chờ phê duyệt cấp 1"
-            if "hậu kiểm" in tt_lower: return "Chờ hậu kiểm"
+                return "🟢 ĐÃ DUYỆT (Chốt Bảng Kê WCS)"
+            if "cấp 3" in tt_lower and "chờ" in tt_lower: return "🔵 Chờ phê duyệt cấp 3"
+            if "cấp 2" in tt_lower and "chờ" in tt_lower: return "🔵 Chờ phê duyệt cấp 2"
+            if "cấp 1" in tt_lower and "chờ" in tt_lower: return "🔵 Chờ phê duyệt cấp 1"
+            if "hậu kiểm" in tt_lower: return "🔵 Chờ hậu kiểm"
             if tt_lower == "phê duyệt" or ("phê duyệt" in tt_lower and "chờ" not in tt_lower):
                 ky_tinh = r.get('Kỳ_Tính_Toán_DXBH', 'Chưa duyệt')
-                return f"ĐÃ DUYỆT CỔNG ({ky_tinh})"
-            return tt_dx
+                m_t = re.search(r'Tháng \d{1,2}/\d{4}', ky_tinh)
+                t_str = m_t.group(0) if m_t else ky_tinh
+                return f"🟢 ĐÃ DUYỆT CỔNG ({t_str})"
+            return f"🔵 {tt_dx}"
 
         df_b_merged['Nhãn Trạng Thái'] = df_b_merged.apply(gan_nhan_chuyen_sau_bh, axis=1)
         df_bh_active = df_b_merged.copy()
@@ -251,6 +267,7 @@ if up_bh_ct and up_bh_dx:
                         if c_num in df_bh_sync.columns:
                             df_bh_sync[c_num] = pd.to_numeric(df_bh_sync[c_num], errors='coerce').fillna(0)
 
+                    # Lưu sạch lên Google Sheets: KHÔNG CÓ EMOJI
                     for c_txt in df_bh_sync.select_dtypes(include='object').columns:
                         df_bh_sync[c_txt] = df_bh_sync[c_txt].apply(xoa_sach_emoji)
 
@@ -278,9 +295,6 @@ elif df_bh_active is None:
                 
                 df_bh_active['lsc_norm'] = df_bh_active[col_b_ct_lsc].apply(norm_lsc_key)
 
-                if 'Nhãn Trạng Thái' in df_bh_active.columns:
-                    df_bh_active['Nhãn Trạng Thái'] = df_bh_active['Nhãn Trạng Thái'].apply(xoa_sach_emoji)
-
                 if not df_master_ref.empty and 'lsc_norm' in df_master_ref.columns:
                     map_bs = df_master_ref.set_index('lsc_norm')['Biển số'].to_dict() if 'Biển số' in df_master_ref.columns else {}
                     map_cv = df_master_ref.set_index('lsc_norm')['Cố vấn dịch vụ'].to_dict() if 'Cố vấn dịch vụ' in df_master_ref.columns else {}
@@ -303,7 +317,7 @@ elif df_bh_active is None:
                     df_bh_active['Kỳ_Tính_Toán_DXBH'] = df_bh_active[col_ngay_pd_old].apply(tinh_ky_quyet_toan_bh) if col_ngay_pd_old else 'Chưa duyệt'
                 if 'Nhãn Trạng Thái' not in df_bh_active.columns:
                     col_tt_old = next((c for c in df_bh_active.columns if 'trạng thái' in c.lower()), None)
-                    df_bh_active['Nhãn Trạng Thái'] = df_bh_active[col_tt_old].apply(xoa_sach_emoji).fillna('Chưa duyệt') if col_tt_old else 'Chưa duyệt'
+                    df_bh_active['Nhãn Trạng Thái'] = df_bh_active[col_tt_old].fillna('Chưa duyệt') if col_tt_old else 'Chưa duyệt'
                 if 'Ngày_Duyệt_Format' not in df_bh_active.columns:
                     col_ngay_pd_old = next((c for c in df_bh_active.columns if 'phê duyệt' in c.lower() and 'ngày' in c.lower()), None)
                     df_bh_active['Ngày_Duyệt_Format'] = pd.to_datetime(df_bh_active[col_ngay_pd_old], errors='coerce').dt.strftime('%d/%m/%Y %H:%M').fillna('Chưa duyệt') if col_ngay_pd_old else 'Chưa duyệt'
@@ -377,15 +391,15 @@ if df_bh_active is not None and not df_bh_active.empty:
 
     # KPI SỐ LIỆU NHỎ GỌN
     cnt_b_ro_total = df_b_filtered['lsc_norm'].nunique()
-    cnt_b_do = df_b_filtered[df_b_filtered['Nhãn Trạng Thái'].apply(is_loi_tra_ve)]['lsc_norm'].nunique()
-    cnt_b_xanh = df_b_filtered[df_b_filtered['Nhãn Trạng Thái'].apply(is_chua_up)]['lsc_norm'].nunique()
+    cnt_b_do = df_b_filtered[df_b_filtered['Nhãn Trạng Thái'].apply(lambda x: is_loi_tra_ve(x) or is_chua_up(x))]['lsc_norm'].nunique()
+    cnt_b_cho = df_b_filtered[df_b_filtered['Nhãn Trạng Thái'].str.contains('chờ|hậu kiểm', case=False, na=False)]['lsc_norm'].nunique()
     cnt_b_ok = df_b_filtered[df_b_filtered['Nhãn Trạng Thái'].apply(is_da_duyet)]['lsc_norm'].nunique()
 
     kb1, kb2, kb3, kb4 = st.columns(4)
     kb1.metric("📌 Tổng RO Bảo Hành", f"{cnt_b_ro_total} RO", f"{len(df_b_filtered)} mục")
-    kb2.metric("❌ Bị Từ Chối / Trả Về", f"{cnt_b_do} RO", delta=f"{cnt_b_do} lỗi" if cnt_b_do > 0 else "0", delta_color="inverse")
-    kb3.metric("⚠️ Chưa Upload Đề Xuất", f"{cnt_b_xanh} RO", delta=f"{cnt_b_xanh} xe" if cnt_b_xanh > 0 else "0", delta_color="off")
-    kb4.metric("✅ Đã Duyệt", f"{cnt_b_ok} RO")
+    kb2.metric("🔴 Lỗi / Chưa Upload", f"{cnt_b_do} RO", delta=f"{cnt_b_do} ca cần xử lý" if cnt_b_do > 0 else "0", delta_color="inverse")
+    kb3.metric("🔵 Đang Chờ Phê Duyệt", f"{cnt_b_cho} RO", delta="Cấp 1/2/3", delta_color="off")
+    kb4.metric("🟢 Đã Duyệt Quyết Toán", f"{cnt_b_ok} RO")
 
     # ==================== 7 TAB NGẮN GỌN VỪA KHÍT MÀN HÌNH ====================
     t_tab_do, t_tab_xanh, t_b_ro, t_b_split, t_b_detail, t_b_ignore, t_b_inv = st.tabs([
@@ -397,6 +411,24 @@ if df_bh_active is not None and not df_bh_active.empty:
         "⚪ Bỏ Qua",
         "🧾 Hóa Đơn NM"
     ])
+
+    # CẤU HÌNH CỘT RỘNG RÃI ĐỂ KHÔNG BAO GIỜ BỊ CẮT CHỮ
+    cfg_bang_chuan = {
+        "STT": st.column_config.NumberColumn("STT", width="small"),
+        col_b_ct_lsc: st.column_config.TextColumn("Lệnh sửa chữa", width="medium"),
+        "Biển số": st.column_config.TextColumn("Biển số", width="small"),
+        "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", width="medium"),
+        "Trạng thái DMS": st.column_config.TextColumn("Trạng thái", width="small"),
+        "Thời gian đóng LSC": st.column_config.TextColumn("Thời gian đóng", width="medium"),
+        "Số mục (Part/Công)": st.column_config.NumberColumn("Số mục", width="small"),
+        "Tổng tiền xưởng (no VAT)": st.column_config.NumberColumn(format="%,d đ", width="medium"),
+        "Tiền ĐXBH (no VAT)": st.column_config.NumberColumn(format="%,d đ", width="medium"),
+        "Tiền WCS duyệt (no VAT)": st.column_config.NumberColumn(format="%,d đ", width="medium"),
+        "Ngày duyệt lệnh": st.column_config.TextColumn("Ngày duyệt", width="medium"),
+        # 2 CỘT NÀY CHO RỘNG (LARGE) ĐỂ HIỂN THỊ TRỌN VẸN CHỮ
+        "WCS Số Kỳ Cụ Thể": st.column_config.TextColumn("Bảng Kê / Kỳ Duyệt", width="large"),
+        "Nhãn Trạng Thái": st.column_config.TextColumn("Trạng Thái Phê Duyệt", width="large")
+    }
 
     with t_tab_do:
         st.subheader("🔴 Danh Sách Xe Bị Từ Chối / Trả Về (Cần Sửa Gấp)")
@@ -420,11 +452,19 @@ if df_bh_active is not None and not df_bh_active.empty:
             df_do_grouped.insert(0, 'STT', range(1, len(df_do_grouped) + 1))
             cfg_do = {
                 "STT": st.column_config.NumberColumn("STT", width="small"),
-                "Tiền xưởng (no VAT)": st.column_config.NumberColumn(format="%,d đ"),
-                "Tiền ĐXBH (no VAT)": st.column_config.NumberColumn(format="%,d đ")
+                col_b_ct_lsc: st.column_config.TextColumn("Lệnh sửa chữa", width="medium"),
+                "Biển số": st.column_config.TextColumn("Biển số", width="small"),
+                "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", width="medium"),
+                "Trạng thái DMS": st.column_config.TextColumn("Trạng thái", width="small"),
+                "Thời gian đóng LSC": st.column_config.TextColumn("Thời gian đóng", width="medium"),
+                "Số mục lỗi": st.column_config.NumberColumn("Số mục lỗi", width="small"),
+                "Tiền xưởng (no VAT)": st.column_config.NumberColumn(format="%,d đ", width="medium"),
+                "Tiền ĐXBH (no VAT)": st.column_config.NumberColumn(format="%,d đ", width="medium"),
+                "Lý do / Cấp độ trả về": st.column_config.TextColumn("Lý do / Cấp độ trả về", width="large")
             }
-            cols_do_show = ['STT', col_b_ct_lsc, 'Biển số', 'Cố vấn dịch vụ', 'Trạng thái DMS', 'Thời gian đóng LSC', 'Số mục lỗi', 'Tiền xưởng (no VAT)', 'Tiền ĐXBH (no VAT)', 'Lý do / Cấp độ trả về']
-            st.dataframe(df_do_grouped[[c for c in cols_do_show if c in df_do_grouped.columns]], use_container_width=True, hide_index=True, column_config=cfg_do)
+            # Tô màu đỏ trực tiếp cho bảng
+            st_styled = df_do_grouped.style.map(to_mau_trang_thai, subset=['Lý do / Cấp độ trả về'])
+            st.dataframe(st_styled, use_container_width=True, hide_index=True, column_config=cfg_do)
         else:
             st.success("🎉 Không có lệnh nào bị trả về trong kỳ lọc này.")
 
@@ -444,14 +484,21 @@ if df_bh_active is not None and not df_bh_active.empty:
                 'Tiền xưởng (DMS)': 'Tổng tiền xưởng (no VAT)'
             })
             df_xanh_grouped.insert(0, 'STT', range(1, len(df_xanh_grouped) + 1))
-            df_xanh_grouped['Tình trạng'] = "Chưa tạo đề xuất trên Portal"
+            df_xanh_grouped['Tình trạng'] = "🔴 CHƯA TẠO ĐỀ XUẤT PORTAL"
 
             cfg_xanh = {
                 "STT": st.column_config.NumberColumn("STT", width="small"),
-                "Tổng tiền xưởng (no VAT)": st.column_config.NumberColumn(format="%,d đ")
+                col_b_ct_lsc: st.column_config.TextColumn("Lệnh sửa chữa", width="medium"),
+                "Biển số": st.column_config.TextColumn("Biển số", width="small"),
+                "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", width="medium"),
+                "Trạng thái DMS": st.column_config.TextColumn("Trạng thái", width="small"),
+                "Thời gian đóng LSC": st.column_config.TextColumn("Thời gian đóng", width="medium"),
+                "Số mục chưa claim": st.column_config.NumberColumn("Số mục chưa claim", width="small"),
+                "Tổng tiền xưởng (no VAT)": st.column_config.NumberColumn(format="%,d đ", width="medium"),
+                "Tình trạng": st.column_config.TextColumn("Tình trạng", width="large")
             }
-            cols_xanh_show = ['STT', col_b_ct_lsc, 'Biển số', 'Cố vấn dịch vụ', 'Trạng thái DMS', 'Thời gian đóng LSC', 'Số mục chưa claim', 'Tổng tiền xưởng (no VAT)', 'Tình trạng']
-            st.dataframe(df_xanh_grouped[[c for c in cols_xanh_show if c in df_xanh_grouped.columns]], use_container_width=True, hide_index=True, column_config=cfg_xanh)
+            st_styled_x = df_xanh_grouped.style.map(to_mau_trang_thai, subset=['Tình trạng'])
+            st.dataframe(st_styled_x, use_container_width=True, hide_index=True, column_config=cfg_xanh)
         else:
             st.success("🎉 Toàn bộ xe đã được tạo đề xuất claim lên cổng VinFast!")
 
@@ -471,26 +518,24 @@ if df_bh_active is not None and not df_bh_active.empty:
                 'Tien_WCS': lambda x: x.sum() if x.notna().any() else 0,
                 'Nhãn Trạng Thái': lambda x: " | ".join(sorted(set(x)))
             }).reset_index().rename(columns={
-                col_b_ct_mavt: 'Số mục',
-                'Tiền xưởng (DMS)': 'Tiền xưởng (no VAT)',
+                col_b_ct_mavt: 'Số mục (Part/Công)',
+                'Tiền xưởng (DMS)': 'Tổng tiền xưởng (no VAT)',
                 'Tien_DXBH': 'Tiền ĐXBH (no VAT)',
                 'Tien_WCS': 'Tiền WCS duyệt (no VAT)',
                 'Ngày_Duyệt_Format': 'Ngày duyệt lệnh'
             })
 
             df_b_ro_grouped.insert(0, 'STT', range(1, len(df_b_ro_grouped) + 1))
-            cfg_b_ro = {
-                "STT": st.column_config.NumberColumn("STT", width="small"),
-                "Tiền xưởng (no VAT)": st.column_config.NumberColumn(format="%,d đ"),
-                "Tiền ĐXBH (no VAT)": st.column_config.NumberColumn(format="%,d đ"),
-                "Tiền WCS duyệt (no VAT)": st.column_config.NumberColumn(format="%,d đ")
-            }
             cols_b_show_ro = [
                 'STT', col_b_ct_lsc, 'Biển số', 'Cố vấn dịch vụ', 'Trạng thái DMS', 'Thời gian đóng LSC',
-                'Số mục', 'Tiền xưởng (no VAT)', 'Tiền ĐXBH (no VAT)',
+                'Số mục (Part/Công)', 'Tổng tiền xưởng (no VAT)', 'Tiền ĐXBH (no VAT)',
                 'Tiền WCS duyệt (no VAT)', 'Ngày duyệt lệnh', 'WCS Số Kỳ Cụ Thể', 'Nhãn Trạng Thái'
             ]
-            st.dataframe(df_b_ro_grouped[[c for c in cols_b_show_ro if c in df_b_ro_grouped.columns]], use_container_width=True, hide_index=True, column_config=cfg_b_ro)
+            df_display_ro = df_b_ro_grouped[[c for c in cols_b_show_ro if c in df_b_ro_grouped.columns]].copy()
+            
+            # Tô màu chữ/nền cho cột Nhãn Trạng Thái
+            st_styled_ro = df_display_ro.style.map(to_mau_trang_thai, subset=['Nhãn Trạng Thái'])
+            st.dataframe(st_styled_ro, use_container_width=True, hide_index=True, column_config=cfg_bang_chuan)
         else:
             st.info("Không có dữ liệu phù hợp với bộ lọc.")
 
@@ -519,7 +564,11 @@ if df_bh_active is not None and not df_bh_active.empty:
             df_b_split_show.insert(0, 'STT', range(1, len(df_b_split_show) + 1))
             cfg_b_sp = {
                 "STT": st.column_config.NumberColumn("STT", width="small"),
-                "Tổng tiền đề xuất": st.column_config.NumberColumn(format="%,d đ")
+                col_b_ct_lsc: st.column_config.TextColumn("Lệnh sửa chữa", width="medium"),
+                "Biển số": st.column_config.TextColumn("Biển số", width="small"),
+                "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", width="medium"),
+                "Tiến độ chi tiết": st.column_config.TextColumn("Tiến độ chi tiết", width="large"),
+                "Tổng tiền đề xuất": st.column_config.NumberColumn(format="%,d đ", width="medium")
             }
             st.dataframe(df_b_split_show[['STT', col_b_ct_lsc, 'Biển số', 'Cố vấn dịch vụ', 'Tiến độ chi tiết', 'Tổng tiền đề xuất']], use_container_width=True, hide_index=True, column_config=cfg_b_sp)
 
@@ -527,7 +576,12 @@ if df_bh_active is not None and not df_bh_active.empty:
             df_b_ro_sp_detail = df_bh_m[df_bh_m[col_b_ct_lsc] == sel_b_split_ro].copy()
             df_b_ro_sp_detail.insert(0, 'STT', range(1, len(df_b_ro_sp_detail) + 1))
             cols_b_sp_dt = ['STT', col_b_ct_mavt, col_b_mota, col_b_ct_loai, 'SL_DMS', 'TienCong_DMS', 'Tien_WCS', 'Ngày_Duyệt_Format', 'Nhãn Trạng Thái', 'WCS Số Kỳ Cụ Thể']
-            st.dataframe(df_b_ro_sp_detail[[c for c in cols_b_sp_dt if c in df_b_ro_sp_detail.columns]], use_container_width=True, hide_index=True)
+            cfg_sub_sp = {
+                "Nhãn Trạng Thái": st.column_config.TextColumn("Nhãn Trạng Thái", width="large"),
+                "WCS Số Kỳ Cụ Thể": st.column_config.TextColumn("Bảng Kê / Kỳ", width="large")
+            }
+            st_styled_sub = df_b_ro_sp_detail[[c for c in cols_b_sp_dt if c in df_b_ro_sp_detail.columns]].style.map(to_mau_trang_thai, subset=['Nhãn Trạng Thái'])
+            st.dataframe(st_styled_sub, use_container_width=True, hide_index=True, column_config=cfg_sub_sp)
         else:
             st.success("Không có lệnh nào bị treo duyệt tách đợt.")
 
@@ -542,10 +596,18 @@ if df_bh_active is not None and not df_bh_active.empty:
             ]
             cfg_b_dt = {
                 "STT": st.column_config.NumberColumn("STT", width="small"),
-                "Tiền xưởng (DMS)": st.column_config.NumberColumn(format="%,d đ"),
-                "Tien_WCS": st.column_config.NumberColumn(format="%,d đ")
+                col_b_ct_lsc: st.column_config.TextColumn("Lệnh sửa chữa", width="medium"),
+                "Biển số": st.column_config.TextColumn("Biển số", width="small"),
+                "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", width="medium"),
+                col_b_ct_mavt: st.column_config.TextColumn("Mã sản phẩm", width="medium"),
+                col_b_mota: st.column_config.TextColumn("Mô tả sản phẩm", width="large"),
+                "Tiền xưởng (DMS)": st.column_config.NumberColumn(format="%,d đ", width="medium"),
+                "Tien_WCS": st.column_config.NumberColumn(format="%,d đ", width="medium"),
+                "WCS Số Kỳ Cụ Thể": st.column_config.TextColumn("Bảng Kê / Kỳ Duyệt", width="large"),
+                "Nhãn Trạng Thái": st.column_config.TextColumn("Trạng Thái Phê Duyệt", width="large")
             }
-            st.dataframe(df_b_dt_show[[c for c in cols_b_dt_view if c in df_b_dt_show.columns]], use_container_width=True, hide_index=True, column_config=cfg_b_dt)
+            st_styled_dt = df_b_dt_show[[c for c in cols_b_dt_view if c in df_b_dt_show.columns]].style.map(to_mau_trang_thai, subset=['Nhãn Trạng Thái'])
+            st.dataframe(st_styled_dt, use_container_width=True, hide_index=True, column_config=cfg_b_dt)
         else:
             st.info("Không có dữ liệu chi tiết.")
 
@@ -578,7 +640,12 @@ if df_bh_active is not None and not df_bh_active.empty:
             df_b_ig_sum['Ghi chú'] = "Bỏ qua thủ công (Không claim Nhà máy)"
             cfg_b_ig = {
                 "STT": st.column_config.NumberColumn("STT", width="small"),
-                "Tiền xưởng": st.column_config.NumberColumn(format="%,d đ")
+                col_b_ct_lsc: st.column_config.TextColumn("Lệnh sửa chữa", width="medium"),
+                "Biển số": st.column_config.TextColumn("Biển số", width="small"),
+                "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", width="medium"),
+                "Số mục bỏ qua": st.column_config.NumberColumn("Số mục", width="small"),
+                "Tiền xưởng": st.column_config.NumberColumn(format="%,d đ", width="medium"),
+                "Ghi chú": st.column_config.TextColumn("Ghi chú", width="large")
             }
             st.dataframe(df_b_ig_sum[['STT', col_b_ct_lsc, 'Biển số', 'Cố vấn dịch vụ', 'Số mục bỏ qua', 'Tiền xưởng', 'Ghi chú']], use_container_width=True, hide_index=True, column_config=cfg_b_ig)
         else:
@@ -587,6 +654,7 @@ if df_bh_active is not None and not df_bh_active.empty:
     with t_b_inv:
         st.subheader(f"🧾 Hóa Đơn Xuất Nhà Máy ({sel_b_ky})")
         df_b_inv_target = df_b_filtered[df_b_filtered['Kỳ_Tính_Toán_DXBH'] != 'Chưa duyệt'].copy()
+        
         if not df_b_inv_target.empty:
             df_b_inv_summary = df_b_inv_target.groupby(['lsc_norm', col_b_ct_lsc]).agg({
                 'Biển số': 'first',
@@ -594,27 +662,66 @@ if df_bh_active is not None and not df_bh_active.empty:
                 'WCS Số Kỳ Cụ Thể': 'first',
                 col_b_ct_mavt: 'count',
                 'Tien_WCS': lambda x: x.sum() if x.notna().any() else 0,
-                'Tien_DXBH': 'sum'
+                'Tien_DXBH': 'sum',
+                'Số HĐ': 'first' if 'Số HĐ' in df_b_inv_target.columns else lambda x: "",
+                'Ngày HĐ': 'first' if 'Ngày HĐ' in df_b_inv_target.columns else lambda x: ""
             }).reset_index()
+
             df_b_inv_summary['Tiền Quyết Toán'] = df_b_inv_summary.apply(
                 lambda r: r['Tien_WCS'] if r['Tien_WCS'] > 0 else r['Tien_DXBH'], axis=1
             )
             df_b_inv_summary.insert(0, 'STT', range(1, len(df_b_inv_summary) + 1))
 
-            c_in1, c_in2, c_in3 = st.columns(3)
+            st.markdown("##### ⚡ Áp dụng nhanh cho toàn bộ danh sách bên dưới:")
+            c_in1, c_in2, c_in3, c_btn = st.columns([2.5, 2.5, 3.5, 2.5])
             with c_in1: so_hd_b = st.text_input("Số HĐ xuất:", placeholder="VD: 0001234", key="b_in_shd")
             with c_in2: ngay_hd_b = st.text_input("Ngày xuất HĐ:", placeholder="VD: 25/09/2026", key="b_in_nhd")
             with c_in3: noidung_hd_b = st.text_input("Nội dung HĐ:", value=f"Chi phí bảo hành Ô tô {sel_b_ky}", key="b_in_nd")
 
-            df_b_inv_summary['Số HĐ'] = so_hd_b
-            df_b_inv_summary['Ngày HĐ'] = ngay_hd_b
+            if so_hd_b:
+                df_b_inv_summary['Số HĐ'] = so_hd_b
+            if ngay_hd_b:
+                df_b_inv_summary['Ngày HĐ'] = ngay_hd_b
             df_b_inv_summary['Nội Dung'] = noidung_hd_b
 
             cfg_b_inv = {
-                "STT": st.column_config.NumberColumn("STT", width="small"),
-                "Tiền Quyết Toán": st.column_config.NumberColumn(format="%,d đ")
+                "STT": st.column_config.NumberColumn("STT", width="small", disabled=True),
+                col_b_ct_lsc: st.column_config.TextColumn("Lệnh sửa chữa", width="medium", disabled=True),
+                "Biển số": st.column_config.TextColumn("Biển số", width="small", disabled=True),
+                "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", width="medium", disabled=True),
+                "WCS Số Kỳ Cụ Thể": st.column_config.TextColumn("Bảng kê / Kỳ", width="large", disabled=True),
+                col_b_ct_mavt: st.column_config.NumberColumn("Số mục", width="small", disabled=True),
+                "Tiền Quyết Toán": st.column_config.NumberColumn("Tiền Quyết Toán", format="%,d đ", width="medium", disabled=True),
+                "Số HĐ": st.column_config.TextColumn("Số HĐ (Gõ sửa trực tiếp)", width="medium"),
+                "Ngày HĐ": st.column_config.TextColumn("Ngày HĐ (Gõ sửa trực tiếp)", width="medium"),
+                "Nội Dung": st.column_config.TextColumn("Nội Dung", width="large", disabled=True)
             }
             cols_b_inv_show = ['STT', col_b_ct_lsc, 'Biển số', 'Cố vấn dịch vụ', 'WCS Số Kỳ Cụ Thể', col_b_ct_mavt, 'Tiền Quyết Toán', 'Số HĐ', 'Ngày HĐ', 'Nội Dung']
-            st.dataframe(df_b_inv_summary[[c for c in cols_b_inv_show if c in df_b_inv_summary.columns]], use_container_width=True, hide_index=True, column_config=cfg_b_inv)
+            
+            edited_inv_df = st.data_editor(
+                df_b_inv_summary[[c for c in cols_b_inv_show if c in df_b_inv_summary.columns]],
+                use_container_width=True,
+                hide_index=True,
+                column_config=cfg_b_inv,
+                key="editor_hoa_don_bh"
+            )
+
+            with c_btn:
+                st.write("")
+                st.write("")
+                if st.button("☁️ Lưu Hóa Đơn Lên GG Sheets", type="primary", use_container_width=True):
+                    with st.spinner("⏳ Đang lưu số HĐ vào Google Sheets..."):
+                        map_shd = edited_inv_df.set_index(col_b_ct_lsc)['Số HĐ'].to_dict()
+                        map_nhd = edited_inv_df.set_index(col_b_ct_lsc)['Ngày HĐ'].to_dict()
+                        
+                        for idx_r, r_val in df_bh_m.iterrows():
+                            lsc_k = r_val.get(col_b_ct_lsc)
+                            if lsc_k in map_shd and map_shd[lsc_k]:
+                                df_bh_m.at[idx_r, 'Số HĐ'] = map_shd[lsc_k]
+                                df_bh_m.at[idx_r, 'Ngày HĐ'] = map_nhd.get(lsc_k, '')
+
+                        conn.update(worksheet="ChiTiet_BaoHanh", data=df_bh_m)
+                        st.success("✅ Đã lưu thành công Số HĐ vào Google Sheets!")
+                        st.rerun()
         else:
             st.info("Không có dữ liệu hóa đơn bảo hành cho kỳ này.")
