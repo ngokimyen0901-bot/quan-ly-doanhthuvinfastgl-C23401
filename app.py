@@ -12,18 +12,9 @@ from openpyxl.utils import get_column_letter
 from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗", layout="wide")
-st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗", layout="wide")
 
-# ----------------- NÚT CHUYỂN PHÂN HỆ NỔI BẬT NGAY TRÊN ĐẦU TRANG CHÍNH -----------------
-col_ph1, col_ph2 = st.columns(2)
-with col_ph1:
-    chon_phan_he = st.radio(
-        "🧭 **CHỌN PHÂN HỆ LÀM VIỆC:**",
-        ["📊 1. Quản Trị Dịch Vụ & Hóa Đơn (Code Gốc)", "🛡️ 2. Đối Soát Quyết Toán Bảo Hành (Chuyên Sâu)"],
-        horizontal=True,
-        index=0
-    )
-st.markdown("---")
+st.markdown("""
+
 """, unsafe_allow_html=True)
 
 SECRET_KEY_AUTH = "VinFast_GiaLai_Secret_Key_2026"
@@ -1255,14 +1246,3 @@ if is_admin:
                 cols_display = ['Số lệnh sửa chữa', 'Trạng thái', 'Biển số', 'Cố vấn dịch vụ', 'Tên khách hàng', 'Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán', 'Ghi chú']
                 cols_valid = [c for c in cols_display if c in df_chua_up.columns]
                 st.dataframe(df_chua_up[cols_valid], use_container_width=True)
-                # ==============================================================================
-# PHÂN HỆ 2: ĐỐI SOÁT QUYẾT TOÁN BẢO HÀNH CHUYÊN SÂU
-# ==============================================================================
-if chon_phan_he == "🛡️ Đối Soát Quyết Toán Bảo Hành":
-    # Ẩn nội dung phân hệ 1 và chỉ hiển thị phân hệ bảo hành
-    st.markdown("", unsafe_allow_html=True)
-    
-    st.title("🛡️ Kiểm Soát Đề Xuất Bảo Hành & Quyết Toán VinFast")
-    st.caption("Đối soát 4 file: DMS ↔ ĐXBH ↔ Bảng kê WCS | Tịnh tiến kỳ 23-22 | Lọc từ 29/08/2026 | Đồng bộ Google Sheets.")
-    
-    # [Nội dung phân hệ bảo hành từ test_local.py được đặt ở đây]
