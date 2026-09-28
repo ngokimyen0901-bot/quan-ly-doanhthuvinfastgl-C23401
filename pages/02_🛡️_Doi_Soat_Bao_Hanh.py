@@ -261,11 +261,54 @@ elif df_bh_active is None:
             if df_bh_from_gsheet is not None and not df_bh_from_gsheet.empty:
                 df_bh_active = df_bh_from_gsheet.copy()
                 is_bh_from_gsheets = True
+                
                 col_b_ct_lsc = next((c for c in df_bh_active.columns if 'lệnh sửa chữa' in c.lower()), 'Lệnh sửa chữa')
                 col_b_ct_mavt = next((c for c in df_bh_active.columns if 'mã sản phẩm' in c.lower() or 'mã vật tư' in c.lower()), 'Mã sản phẩm')
                 col_b_mota = next((c for c in df_bh_active.columns if 'mô tả sản phẩm' in c.lower()), 'Mô tả sản phẩm')
                 col_b_ct_loai = next((c for c in df_bh_active.columns if 'loại sản phẩm' in c.lower()), 'Loại sản phẩm')
+                
                 df_bh_active['lsc_norm'] = df_bh_active[col_b_ct_lsc].apply(norm_lsc_key)
+
+                # Bổ sung an toàn cho các cột nếu sheet cũ chưa có
+                if 'Trạng thái DMS' not in df_bh_active.columns:
+                    df_bh_active['Trạng thái DMS'] = 'Đã đóng'
+                if 'WCS Số Kỳ Cụ Thể' not in df_bh_active.columns:
+                    df_bh_active['WCS Số Kỳ Cụ Thể'] = 'Chưa duyệt'
+                if 'Kỳ_Tính_Toán_DXBH' not in df_bh_active.columns:
+                    col_ngay_pd_old = next((c for c in df_bh_active.columns if 'phê duyệt' in c.lower() and 'ngày' in c.lower()), None)
+                    if col_ngay_pd_old:
+                        df_bh_active['Kỳ_Tính_Toán_DXBH'] = df_bh_active[col_ngay_pd_old].apply(tinh_ky_quyet_toan_bh)
+                    else:
+                        df_bh_active['Kỳ_Tính_Toán_DXBH'] = 'Chưa duyệt'
+                if 'Nhãn Trạng Thái' not in df_bh_active.columns:
+                    col_tt_old = next((c for c in df_bh_active.columns if 'trạng thái' in c.lower()), None)
+                    if col_tt_old:
+                        df_bh_active['Nhãn Trạng Thái'] = df_bh_active[col_tt_old].fillna('Chưa duyệt')
+                    else:
+                        df_bh_active['Nhãn Trạng Thái'] = 'Chưa duyệt'
+                if 'Ngày_Duyệt_Format' not in df_bh_active.columns:
+                    col_ngay_pd_old = next((c for c in df_bh_active.columns if 'phê duyệt' in c.lower() and 'ngày' in c.lower()), None)
+                    if col_ngay_pd_old:
+                        df_bh_active['Ngày_Duyệt_Format'] = pd.to_datetime(df_bh_active[col_ngay_pd_old], errors='coerce').dt.strftime('%d/%m/%Y %H:%M').fillna('Chưa duyệt')
+                    else:
+                        df_bh_active['Ngày_Duyệt_Format'] = 'Chưa duyệt'
+                if 'Biển số' not in df_bh_active.columns:
+                    df_bh_active['Biển số'] = ''
+                if 'Cố vấn dịch vụ' not in df_bh_active.columns:
+                    df_bh_active['Cố vấn dịch vụ'] = ''
+                if 'Thời gian đóng LSC' not in df_bh_active.columns:
+                    df_bh_active['Thời gian đóng LSC'] = ''
+                if 'Tiền xưởng (DMS)' not in df_bh_active.columns:
+                    df_bh_active['Tiền xưởng (DMS)'] = 0.0
+                if 'Tien_DXBH' not in df_bh_active.columns:
+                    col_t_dx = next((c for c in df_bh_active.columns if 'claim' in c.lower() or 'tiền' in c.lower()), None)
+                    df_bh_active['Tien_DXBH'] = df_bh_active[col_t_dx].apply(clean_num_bh) if col_t_dx else 0.0
+                if 'Tien_WCS' not in df_bh_active.columns:
+                    df_bh_active['Tien_WCS'] = 0.0
+                if 'SL_DMS' not in df_bh_active.columns:
+                    df_bh_active['SL_DMS'] = 1.0
+                if 'SL_WCS' not in df_bh_active.columns:
+                    df_bh_active['SL_WCS'] = 0.0
     except Exception:
         pass
 
@@ -283,11 +326,11 @@ if df_bh_active is not None and not df_bh_active.empty:
 
     fl_b1, fl_b2, fl_b3 = st.columns(3)
     with fl_b1:
-        list_b_tt = ["Tất cả trạng thái"] + sorted(list(df_bh_m['Trạng thái DMS'].dropna().unique()))
+        list_b_tt = ["Tất cả trạng thái"] + sorted(list(df_bh_m.get('Trạng thái DMS', pd.Series(['Đã đóng'])).dropna().unique()))
         sel_b_tt = st.selectbox("1. Lọc theo Trạng Thái LSC:", list_b_tt, index=list_b_tt.index("Đã đóng") if "Đã đóng" in list_b_tt else 0)
 
     with fl_b2:
-        raw_b_kys = [k for k in df_bh_m['Kỳ_Tính_Toán_DXBH'].dropna().unique() if str(k).startswith("Kỳ Tháng")]
+        raw_b_kys = [k for k in df_bh_m.get('Kỳ_Tính_Toán_DXBH', pd.Series()).dropna().unique() if str(k).startswith("Kỳ Tháng")]
         parsed_b_kys = []
         for k_str in raw_b_kys:
             m_ky = re.search(r'Tháng (\d{1,2})/(\d{4})', k_str)
@@ -409,7 +452,7 @@ if df_bh_active is not None and not df_bh_active.empty:
         df_b_split_show = ro_b_split[(ro_b_split['Số mục đã chốt WCS'] > 0) & (ro_b_split['Số mục đang chờ duyệt'] > 0)].copy()
         if not df_b_split_show.empty:
             df_b_split_show['Tiến độ chi tiết'] = df_b_split_show.apply(
-                lambda r: f"Đã duyệt Lần 1 ({r['Số mục đã chốt WCS']} mục) - Đang chờ duyệt Lần 2 ({r['Số mục đang duyệt']} mục)", axis=1
+                lambda r: f"Đã duyệt Lần 1 ({r['Số mục đã chốt WCS']} mục) - Đang chờ duyệt Lần 2 ({r['Số mục đang chờ duyệt']} mục)", axis=1
             )
             df_b_split_show.insert(0, 'STT', range(1, len(df_b_split_show) + 1))
 
@@ -463,24 +506,24 @@ if df_bh_active is not None and not df_bh_active.empty:
                 st.success("Đã cập nhật danh sách bỏ qua thành công!")
                 st.rerun()
 
-        df_b_ignored = df_bh_m[df_bh_m['lsc_norm'].isin(st.session_state.ds_bo_qua)].copy()
-        if not df_b_ignored.empty:
-            df_b_ig_sum = df_b_ignored.groupby(['lsc_norm', col_b_ct_lsc]).agg({
-                'Biển số': 'first',
-                'Cố vấn dịch vụ': 'first',
-                col_b_ct_mavt: 'count',
-                'Tiền xưởng (DMS)': 'sum'
-            }).reset_index().rename(columns={col_b_ct_mavt: 'Số mục bỏ qua', 'Tiền xưởng (DMS)': 'Tiền xưởng'})
-            df_b_ig_sum.insert(0, 'STT', range(1, len(df_b_ig_sum) + 1))
-            df_b_ig_sum['Ghi chú kế toán'] = "Bỏ qua thủ công (Không claim Nhà máy)"
+            df_b_ignored = df_bh_m[df_bh_m['lsc_norm'].isin(st.session_state.ds_bo_qua)].copy()
+            if not df_b_ignored.empty:
+                df_b_ig_sum = df_b_ignored.groupby(['lsc_norm', col_b_ct_lsc]).agg({
+                    'Biển số': 'first',
+                    'Cố vấn dịch vụ': 'first',
+                    col_b_ct_mavt: 'count',
+                    'Tiền xưởng (DMS)': 'sum'
+                }).reset_index().rename(columns={col_b_ct_mavt: 'Số mục bỏ qua', 'Tiền xưởng (DMS)': 'Tiền xưởng'})
+                df_b_ig_sum.insert(0, 'STT', range(1, len(df_b_ig_sum) + 1))
+                df_b_ig_sum['Ghi chú kế toán'] = "Bỏ qua thủ công (Không claim Nhà máy)"
 
-            cfg_b_ig = {
-                "STT": st.column_config.NumberColumn("STT", width="small"),
-                "Tiền xưởng": st.column_config.NumberColumn(format="%,d đ")
-            }
-            st.dataframe(df_b_ig_sum[['STT', col_b_ct_lsc, 'Biển số', 'Cố vấn dịch vụ', 'Số mục bỏ qua', 'Tiền xưởng', 'Ghi chú kế toán']], use_container_width=True, hide_index=True, column_config=cfg_b_ig)
-        else:
-            st.info("Hiện chưa có lệnh nào bị đánh dấu Bỏ qua.")
+                cfg_b_ig = {
+                    "STT": st.column_config.NumberColumn("STT", width="small"),
+                    "Tiền xưởng": st.column_config.NumberColumn(format="%,d đ")
+                }
+                st.dataframe(df_b_ig_sum[['STT', col_b_ct_lsc, 'Biển số', 'Cố vấn dịch vụ', 'Số mục bỏ qua', 'Tiền xưởng', 'Ghi chú kế toán']], use_container_width=True, hide_index=True, column_config=cfg_b_ig)
+            else:
+                st.info("Hiện chưa có lệnh nào bị đánh dấu Bỏ qua.")
 
     with t_b_inv:
         st.subheader(f"🧾 Quản Lý Hóa Đơn Xuất Nhà Máy Cho {sel_b_ky}")
@@ -516,3 +559,5 @@ if df_bh_active is not None and not df_bh_active.empty:
             st.dataframe(df_b_inv_summary[[c for c in cols_b_inv_show if c in df_b_inv_summary.columns]], use_container_width=True, hide_index=True, column_config=cfg_b_inv)
         else:
             st.info("Không có dữ liệu hóa đơn bảo hành cho kỳ này.")
+else:
+    st.info("💡 Chưa có dữ liệu đối soát bảo hành. Hãy mở mục **'Nạp Các Tệp Dữ Liệu Đối Soát Bảo Hành Mới'** phía trên để tải file lên.")
