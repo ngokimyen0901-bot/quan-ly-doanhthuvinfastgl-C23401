@@ -196,7 +196,7 @@ if up_bh_ct and up_bh_dx:
             df_b_merged['Số khung'] = df_b_merged['lsc_norm'].map(df_b_db_info.set_index('lsc_norm')[col_b_sk].to_dict()).fillna('')
 
         def dinh_danh_ky_cu_the_bh(r):
-            if pd.notna(r.get('Tien_WCS')):
+            if pd.notna(r.get('Tien_WCS')) and clean_num_bh(r.get('Tien_WCS')) > 0:
                 return r.get('Kỳ_WCS_Duyệt', ky_wcs_ten_txt)
             ky_dx = r.get('Kỳ_Tính_Toán_DXBH', 'Chưa duyệt')
             if ky_dx != 'Chưa duyệt':
@@ -215,7 +215,7 @@ if up_bh_ct and up_bh_dx:
             tt_lower = tt_dx.lower()
             if any(k in tt_lower for k in ['trả về', 'từ chối', 'không duyệt', 'hủy']):
                 return tt_dx.upper()
-            if pd.notna(r.get('Tien_WCS')):
+            if pd.notna(r.get('Tien_WCS')) and clean_num_bh(r.get('Tien_WCS')) > 0:
                 return "ĐÃ DUYỆT (Chốt Bảng Kê WCS)"
             if "cấp 3" in tt_lower and "chờ" in tt_lower: return "Chờ phê duyệt cấp 3"
             if "cấp 2" in tt_lower and "chờ" in tt_lower: return "Chờ phê duyệt cấp 2"
@@ -327,17 +327,14 @@ if df_bh_active is not None and not df_bh_active.empty:
         sel_b_tt = st.selectbox("1. Trạng Thái LSC:", list_b_tt, index=list_b_tt.index("Đã đóng") if "Đã đóng" in list_b_tt else 0)
 
     with fl_b2:
-        # CHỈ LẤY CÁC KỲ THỰC TẾ CÓ DỮ LIỆU TỪ THÁNG 09/2026 TRỞ ĐI
         ky_thuc_te_set = set()
         for v in df_bh_m['Kỳ_Tính_Toán_DXBH'].dropna().unique():
             m_ky = re.search(r'Tháng (\d{1,2})/(\d{4})', str(v))
             if m_ky:
                 thang_num, nam_num = int(m_ky.group(1)), int(m_ky.group(2))
-                # Chỉ nhận các kỳ từ tháng 08/2026 trở đi
                 if (nam_num > 2026) or (nam_num == 2026 and thang_num >= 8):
                     ky_thuc_te_set.add((nam_num, thang_num))
 
-        # Sắp xếp kỳ mới nhất lên trước
         sorted_kys = sorted(list(ky_thuc_te_set), key=lambda x: (x[0], x[1]), reverse=True)
         list_b_ky = ["Tất cả các kỳ"] + [f"Kỳ Tháng {m:02d}/{y}" for (y, m) in sorted_kys] + ["Chưa duyệt"]
         sel_b_ky = st.selectbox("2. Kỳ Quyết Toán (Chu kỳ 23-22):", list_b_ky, index=0)
@@ -503,7 +500,8 @@ if df_bh_active is not None and not df_bh_active.empty:
             'Biển số': 'first',
             'Cố vấn dịch vụ': 'first',
             col_b_ct_mavt: 'count',
-            'Tien_WCS': lambda x: x.notna().sum(),
+            # CHỈ ĐẾM CÁC MỤC THỰC SỰ ĐÃ DUYỆT CÓ TIỀN WCS > 0 (KHÔNG ĐẾM NHẦM 0.0)
+            'Tien_WCS': lambda x: sum(1 for v in x if clean_num_bh(v) > 0),
             'Nhãn Trạng Thái': lambda x: sum(1 for v in x if "chờ" in str(v).lower()),
             'Tien_DXBH': 'sum'
         }).reset_index().rename(columns={
