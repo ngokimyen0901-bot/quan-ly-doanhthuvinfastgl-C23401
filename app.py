@@ -12,16 +12,18 @@ from openpyxl.utils import get_column_letter
 from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗", layout="wide")
-# --- NÚT CHUYỂN PHÂN HỆ LÀM VIỆC (ĐẶT Ở THANH BÊN SIDEBAR) ---
-with st.sidebar:
-    st.markdown("### 🧭 Chọn Phân Hệ Làm Việc")
+st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗", layout="wide")
+
+# ----------------- NÚT CHUYỂN PHÂN HỆ NỔI BẬT NGAY TRÊN ĐẦU TRANG CHÍNH -----------------
+col_ph1, col_ph2 = st.columns(2)
+with col_ph1:
     chon_phan_he = st.radio(
-        "Màn hình hiển thị:",
-        ["📊 Quản Trị Dịch Vụ & Hóa Đơn", "🛡️ Đối Soát Quyết Toán Bảo Hành"],
+        "🧭 **CHỌN PHÂN HỆ LÀM VIỆC:**",
+        ["📊 1. Quản Trị Dịch Vụ & Hóa Đơn (Code Gốc)", "🛡️ 2. Đối Soát Quyết Toán Bảo Hành (Chuyên Sâu)"],
+        horizontal=True,
         index=0
     )
-    st.markdown("---")
-
+st.markdown("---")
 """, unsafe_allow_html=True)
 
 SECRET_KEY_AUTH = "VinFast_GiaLai_Secret_Key_2026"
