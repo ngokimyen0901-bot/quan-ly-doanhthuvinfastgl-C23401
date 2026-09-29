@@ -87,6 +87,14 @@ def to_mau_trang_thai(val):
         return 'background-color: #e3f2fd; color: #1565c0; font-weight: bold;'
     return ''
 
+def style_bac_thang(row):
+    """Tô màu bậc thang: Dòng lệnh chính tô màu vàng nhạt như Excel bạn vẽ, dòng con thụt lề"""
+    cap = row.get('Cấp', '')
+    if cap == 'CHA':
+        return ['background-color: #fff9c4; font-weight: bold;' for _ in row]
+    else:
+        return ['color: #555555;' for _ in row]
+
 if "ds_bo_qua" not in st.session_state:
     st.session_state.ds_bo_qua = set()
 
@@ -461,51 +469,109 @@ if df_bh_active is not None and not df_bh_active.empty:
         "🧾 Hóa Đơn NM"
     ])
 
-    # HÀM HIỂN THỊ DANH SÁCH MASTER-DETAIL CÓ CHỮ 'v' MŨI TÊN XỔ XUỐNG Ở TỪNG DÒNG LỆNH
-    def render_accordion_ro_list(df_grouped, df_raw_all, empty_msg):
+    # HÀM TẠO BẢNG BẬC THANG DUY NHẤT (TREE-TABLE ĐÚNG CHUẨN EXCEL BẠN VẼ)
+    def render_tree_table(df_grouped, df_raw_all, empty_msg, tab_key):
         if df_grouped.empty:
             st.success(empty_msg)
             return
 
-        st.caption("💡 **Mẹo:** Bấm vào biểu tượng chữ **v** ở dòng lệnh để xổ xuống toàn bộ danh sách phụ tùng và công việc.")
+        c_t1, c_t2 = st.columns([6, 4])
+        with c_t1:
+            st.markdown("💡 *Bảng phân cấp chuẩn:* Dòng lệnh chính tô màu vàng, các dòng chi tiết phụ tùng/công việc thụt lề ngay bên dưới.")
+        with c_t2:
+            show_detail = st.toggle("📂 Bung chi tiết công việc bậc thang (như Excel)", value=True, key=f"toggle_tree_{tab_key}")
 
-        for idx, row in df_grouped.iterrows():
-            lsc_val = row[col_b_ct_lsc]
-            bs_val = row.get('Biển số', '')
-            cv_val = row.get('Cố vấn dịch vụ', '')
-            somuc_val = row.get('Số mục', row.get('Số mục trả về', row.get('Số mục chưa claim', 1)))
-            tien_val = row.get('Tiền xưởng (no VAT)', row.get('Tổng tiền xưởng (no VAT)', 0))
-            lydo_val = row.get('Cấp độ trả về', row.get('Tình trạng', row.get('Nhãn Trạng Thái', '')))
+        if not show_detail:
+            # Chế độ thu gọn: chỉ hiện dòng lệnh cha
+            cols_parent_show = ['STT', col_b_ct_lsc, 'Biển số', 'Cố vấn dịch vụ', 'Số mục', 'Tiền xưởng (no VAT)', 'Lý do / Trạng thái']
+            df_g_show = df_grouped.copy()
+            df_g_show.insert(0, 'STT', range(1, len(df_g_show) + 1))
+            cfg_simple = {
+                "STT": st.column_config.NumberColumn("STT", width="small"),
+                col_b_ct_lsc: st.column_config.TextColumn("Lệnh sửa chữa", width="medium"),
+                "Biển số": st.column_config.TextColumn("Biển số", width="small"),
+                "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", width="medium"),
+                "Số mục": st.column_config.NumberColumn("Số mục", width="small"),
+                "Tiền xưởng (no VAT)": st.column_config.NumberColumn(format="%,d đ", width="medium"),
+                "Lý do / Trạng thái": st.column_config.TextColumn("Lý do / Trạng thái", width="large")
+            }
+            st.dataframe(
+                df_g_show[[c for c in cols_parent_show if c in df_g_show.columns]].style.map(to_mau_trang_thai, subset=['Lý do / Trạng thái']),
+                use_container_width=True,
+                hide_index=True,
+                column_config=cfg_simple
+            )
+        else:
+            # Chế độ bậc thang (Tree-Table): 1 BẢNG DUY NHẤT có dòng Cha tô vàng và các dòng Con thụt lề
+            rows_tree = []
+            stt_p = 1
+            for _, r_p in df_grouped.iterrows():
+                lsc_val = r_p[col_b_ct_lsc]
+                # DÒNG CHA (LỆNH TỔNG) - TÔ MÀU VÀNG NỔI BẬT NHƯ EXCEL
+                rows_tree.append({
+                    'STT': str(stt_p),
+                    'Cấp': 'CHA',
+                    'Lệnh sửa chữa / Chi tiết': f"🔻 {lsc_val}",
+                    'Biển số': r_p.get('Biển số', ''),
+                    'Cố vấn dịch vụ': r_p.get('Cố vấn dịch vụ', ''),
+                    'Mã / Tên công việc & Phụ tùng': f"[TỔNG CỘNG {r_p.get('Số mục', 1)} MỤC]",
+                    'Phân loại': 'Lệnh tổng',
+                    'SL / Giờ': None,
+                    'Tiền xưởng (no VAT)': r_p.get('Tiền xưởng (no VAT)', 0),
+                    'Trạng thái': r_p.get('Lý do / Trạng thái', '')
+                })
 
-            # Mỗi dòng có sẵn chữ 'v' (mũi tên xổ xuống)
-            exp_title = f"{lsc_val}  |  🚘 {bs_val}  |  👨‍💼 {cv_val}  |  📦 {somuc_val} mục  |  💰 {tien_val:,.0f} đ  |  🏷️ {lydo_val}"
-            with st.expander(exp_title):
+                # CÁC DÒNG CON THỤT LỀ BẬC THANG NGAY DƯỚI DÒNG CHA
                 df_sub = df_raw_all[df_raw_all[col_b_ct_lsc] == lsc_val].copy()
-                if not df_sub.empty:
-                    df_sub.insert(0, 'STT', range(1, len(df_sub) + 1))
-                    cols_sub = ['STT', col_b_ct_mavt, col_b_mota, col_b_ct_loai, 'SL_DMS', 'Tiền xưởng (DMS)', 'Tien_DXBH', 'Tien_WCS', 'Nhãn Trạng Thái']
-                    cfg_sub = {
-                        "STT": st.column_config.NumberColumn("STT", width="small"),
-                        col_b_ct_mavt: st.column_config.TextColumn("Mã sản phẩm", width="medium"),
-                        col_b_mota: st.column_config.TextColumn("Tên công việc / Mô tả phụ tùng", width="large"),
-                        col_b_ct_loai: st.column_config.TextColumn("Phân loại", width="small"),
-                        "SL_DMS": st.column_config.NumberColumn("SL / Giờ", width="small"),
-                        "Tiền xưởng (DMS)": st.column_config.NumberColumn("Tiền xưởng (no VAT)", format="%,d đ", width="medium"),
-                        "Tien_DXBH": st.column_config.NumberColumn("Tiền đề xuất (no VAT)", format="%,d đ", width="medium"),
-                        "Tien_WCS": st.column_config.NumberColumn("Tiền WCS duyệt", format="%,d đ", width="medium"),
-                        "Nhãn Trạng Thái": st.column_config.TextColumn("Trạng thái", width="large")
-                    }
-                    cols_show_sub = [c for c in cols_sub if c in df_sub.columns]
-                    st.dataframe(
-                        df_sub[cols_show_sub].style.map(to_mau_trang_thai, subset=['Nhãn Trạng Thái'] if 'Nhãn Trạng Thái' in cols_show_sub else None),
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config=cfg_sub
-                    )
+                stt_c = 1
+                for _, r_c in df_sub.iterrows():
+                    mavt_c = str(r_c.get(col_b_ct_mavt, '')).strip()
+                    mota_c = str(r_c.get(col_b_mota, '')).strip()
+                    loai_c = str(r_c.get(col_b_ct_loai, '')).strip()
+                    sl_c = r_c.get('SL_DMS', 1)
+                    tien_c = r_c.get('Tiền xưởng (DMS)', 0)
+                    tt_c = r_c.get('Nhãn Trạng Thái', '')
 
-    # TAB 1: BỊ TRẢ VỀ (CÓ CHỮ 'v' MŨI TÊN XỔ XUỐNG Ở TỪNG LỆNH)
+                    rows_tree.append({
+                        'STT': f"  ↳ {stt_p}.{stt_c}",
+                        'Cấp': 'CON',
+                        'Lệnh sửa chữa / Chi tiết': f"      └─ {mavt_c}",
+                        'Biển số': '',
+                        'Cố vấn dịch vụ': '',
+                        'Mã / Tên công việc & Phụ tùng': mota_c,
+                        'Phân loại': loai_c,
+                        'SL / Giờ': sl_c,
+                        'Tiền xưởng (no VAT)': tien_c,
+                        'Trạng thái': tt_c
+                    })
+                    stt_c += 1
+                stt_p += 1
+
+            df_tree_res = pd.DataFrame(rows_tree)
+            cols_show_tree = ['STT', 'Lệnh sửa chữa / Chi tiết', 'Biển số', 'Cố vấn dịch vụ', 'Mã / Tên công việc & Phụ tùng', 'Phân loại', 'SL / Giờ', 'Tiền xưởng (no VAT)', 'Trạng thái']
+            cfg_tree = {
+                "STT": st.column_config.TextColumn("STT", width="small"),
+                "Lệnh sửa chữa / Chi tiết": st.column_config.TextColumn("Lệnh sửa chữa / Mã SP", width="medium"),
+                "Biển số": st.column_config.TextColumn("Biển số", width="small"),
+                "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", width="medium"),
+                "Mã / Tên công việc & Phụ tùng": st.column_config.TextColumn("Mô tả công việc & Phụ tùng", width="large"),
+                "Phân loại": st.column_config.TextColumn("Loại", width="small"),
+                "SL / Giờ": st.column_config.NumberColumn("SL / Giờ", width="small"),
+                "Tiền xưởng (no VAT)": st.column_config.NumberColumn(format="%,d đ", width="medium"),
+                "Trạng thái": st.column_config.TextColumn("Trạng thái", width="large")
+            }
+
+            st_styled_tree = df_tree_res[cols_show_tree].style.apply(style_bac_thang, axis=1)
+            st.dataframe(
+                st_styled_tree,
+                use_container_width=True,
+                hide_index=True,
+                column_config=cfg_tree
+            )
+
+    # TAB 1: BỊ TRẢ VỀ (BẢNG BẬC THANG ĐÚNG CHUẨN)
     with t_tab_do:
-        st.subheader("🔴 Danh Sách Lệnh Bị Nhà Máy Trả Về (Bấm chữ v ở mỗi lệnh để xem chi tiết)")
+        st.subheader("🔴 Danh Sách Lệnh Bị Nhà Máy Trả Về (Bảng Phân Cấp Bậc Thang)")
         df_do_only = df_b_filtered[df_b_filtered['Nhãn Trạng Thái'].apply(is_loi_can_sua_gap)].copy()
         if not df_do_only.empty:
             df_do_grouped = df_do_only.groupby(['lsc_norm', col_b_ct_lsc]).agg({
@@ -518,18 +584,18 @@ if df_bh_active is not None and not df_bh_active.empty:
                 'Tien_DXBH': 'sum',
                 'Nhãn Trạng Thái': lambda x: " | ".join(sorted(set(x)))
             }).reset_index().rename(columns={
-                col_b_ct_mavt: 'Số mục trả về',
+                col_b_ct_mavt: 'Số mục',
                 'Tiền xưởng (DMS)': 'Tiền xưởng (no VAT)',
                 'Tien_DXBH': 'Tiền ĐXBH (no VAT)',
-                'Nhãn Trạng Thái': 'Cấp độ trả về'
+                'Nhãn Trạng Thái': 'Lý do / Trạng thái'
             })
-            render_accordion_ro_list(df_do_grouped, df_bh_m, "🎉 Không có lệnh nào bị trả về trong kỳ lọc này.")
+            render_tree_table(df_do_grouped, df_bh_m, "🎉 Không có lệnh nào bị trả về trong kỳ lọc này.", "tab_do")
         else:
             st.success("🎉 Không có lệnh nào bị trả về trong kỳ lọc này.")
 
-    # TAB 2: CHƯA UPLOAD ĐỀ XUẤT (CÓ CHỮ 'v' MŨI TÊN XỔ XUỐNG Ở TỪNG LỆNH)
+    # TAB 2: CHƯA UPLOAD ĐỀ XUẤT (BẢNG BẬC THANG ĐÚNG CHUẨN)
     with t_tab_xanh:
-        st.subheader("🔵 Danh Sách Xe Hoàn Thành Chưa Upload Đề Xuất (Bấm chữ v ở mỗi lệnh để xem chi tiết)")
+        st.subheader("🔵 Danh Sách Xe Hoàn Thành Chưa Upload Đề Xuất (Bảng Phân Cấp Bậc Thang)")
         df_xanh_only = df_b_filtered[df_b_filtered['Nhãn Trạng Thái'].apply(is_chua_up)].copy()
         ro_co_muc_claim_roi = set(df_bh_m[df_bh_m['Nhãn Trạng Thái'].apply(lambda x: is_da_duyet(x) or ('chờ' in str(x).lower()))]['lsc_norm'])
         df_xanh_that_su = df_xanh_only[~df_xanh_only['lsc_norm'].isin(ro_co_muc_claim_roi)].copy()
@@ -543,11 +609,11 @@ if df_bh_active is not None and not df_bh_active.empty:
                 col_b_ct_mavt: 'count',
                 'Tiền xưởng (DMS)': 'sum'
             }).reset_index().rename(columns={
-                col_b_ct_mavt: 'Số mục chưa claim',
-                'Tiền xưởng (DMS)': 'Tổng tiền xưởng (no VAT)'
+                col_b_ct_mavt: 'Số mục',
+                'Tiền xưởng (DMS)': 'Tiền xưởng (no VAT)'
             })
-            df_xanh_grouped['Tình trạng'] = "🔴 CHƯA TẠO ĐỀ XUẤT PORTAL"
-            render_accordion_ro_list(df_xanh_grouped, df_bh_m, "🎉 Toàn bộ xe đã được tạo đề xuất claim lên cổng VinFast!")
+            df_xanh_grouped['Lý do / Trạng thái'] = "🔴 CHƯA TẠO ĐỀ XUẤT PORTAL"
+            render_tree_table(df_xanh_grouped, df_bh_m, "🎉 Toàn bộ xe đã được tạo đề xuất claim lên cổng VinFast!", "tab_xanh")
         else:
             st.success("🎉 Toàn bộ xe đã được tạo đề xuất claim lên cổng VinFast!")
 
