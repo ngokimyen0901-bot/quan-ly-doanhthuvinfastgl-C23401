@@ -63,6 +63,7 @@ def tinh_ky_quyet_toan_bh(ngay_val):
     return f"Kỳ Tháng {thang:02d}/{nam}"
 
 def xoa_sach_emoji(val):
+    """Làm sạch emoji khi đẩy dữ liệu lên Google Sheets"""
     if pd.isna(val) or val is None: return ""
     s = str(val)
     return re.sub(r'[🔴🔵🟢⚪⏳⌛🚨💡🛠️🧾📋🔄🔎📌🚗🚕❌⚠️✅]', '', s).strip()
@@ -175,7 +176,6 @@ if up_bh_ct and up_bh_dx:
         df_b_dx_sub = df_b_dx[[c for c in cols_sub_dx if c in df_b_dx.columns]].drop_duplicates(subset=['lsc_norm', 'mavt_norm'])
         df_b_merged = pd.merge(df_b_w, df_b_dx_sub, on=['lsc_norm', 'mavt_norm'], how='left')
 
-        # Ghép WCS
         ky_wcs_ten_txt = ""
         if up_bh_wcs:
             xls_w = pd.ExcelFile(up_bh_wcs)
@@ -195,7 +195,7 @@ if up_bh_ct and up_bh_dx:
             df_b_wcs_raw['Tien_WCS'] = df_b_wcs_raw[col_wcs_amt].apply(clean_num_bh)
 
             if col_wcs_bk in df_b_wcs_raw.columns and not df_b_wcs_raw[col_wcs_bk].dropna().empty:
-                wcs_code_txt = str(df_b_wcs_raw[col_wcs_bk].dropna().iloc[0]).strip()
+                wcs_code_txt = str(df_b_wcs_raw[col_b_wcs_bk].dropna().iloc[0]).strip()
                 m_ky = re.search(r'WCS-(\d{2})-(\d{2})-(\d{4})', wcs_code_txt)
                 if m_ky: ky_wcs_ten_txt = f"Bảng kê {wcs_code_txt} (Kỳ {int(m_ky.group(3)):02d} - Tháng {m_ky.group(2)}/20{m_ky.group(1)})"
                 else: ky_wcs_ten_txt = f"Bảng kê {wcs_code_txt}"
@@ -634,45 +634,43 @@ if df_bh_active is not None and not df_bh_active.empty:
         else:
             st.info("Không có dữ liệu chi tiết.")
 
+    # TAB 6: NHẬP NHANH MÃ LSC VÀ BẤM THÊM ĐỂ BỎ QUA VĨNH VIỄN
     with t_b_ignore:
         st.subheader("⚪ Danh Sách Hạng Mục Bỏ Qua & Hãng Không Duyệt (Xưởng Tự Chịu)")
         
-        df_lsc_map = df_bh_m[[col_b_ct_lsc, 'lsc_norm', 'Biển số', 'Cố vấn dịch vụ']].drop_duplicates(subset=['lsc_norm']).copy()
-        df_lsc_map['display_opt'] = df_lsc_map.apply(
-            lambda r: f"{r[col_b_ct_lsc]} | {r['Biển số']} ({r['Cố vấn dịch vụ']})", axis=1
-        )
-        map_display_to_norm = dict(zip(df_lsc_map['display_opt'], df_lsc_map['lsc_norm']))
-        map_norm_to_display = dict(zip(df_lsc_map['lsc_norm'], df_lsc_map['display_opt']))
-        
-        current_defaults = [map_norm_to_display[k] for k in st.session_state.ds_bo_qua if k in map_norm_to_display]
-
-        c_big1, c_big2 = st.columns([7.5, 2.5])
-        with c_big1:
-            sel_b_display = st.multiselect(
-                "Tìm & chọn các LSC muốn gán nhãn [BỎ QUA] (Gõ mã LSC, biển số hoặc tên CVDV):",
-                options=df_lsc_map['display_opt'].tolist(),
-                default=current_defaults,
-                key="ms_b_ignore_display",
-                placeholder="Gõ tìm kiếm VD: C23401-WO-260922-0011 hoặc 81A52924..."
+        st.markdown("##### ⚡ Nhập nhanh Lệnh sửa chữa muốn gán nhãn BỎ QUA:")
+        c_in_ig, c_btn_ig = st.columns([7.5, 2.5])
+        with c_in_ig:
+            nhap_lsc_bo_qua = st.text_input(
+                "Nhập mã LSC (hoặc số đuôi lệnh):",
+                placeholder="VD: C23401-WO-260909-0008 hoặc chỉ cần gõ 260909-0008",
+                key="input_nhanh_bo_qua"
             )
-        with c_big2:
+        with c_btn_ig:
             st.write("")
             st.write("")
-            if st.button("💾 Lưu Trạng Thái Bỏ Qua", type="primary", key="btn_b_ignore", use_container_width=True):
-                chosen_norms = {map_display_to_norm[opt] for opt in sel_b_display if opt in map_display_to_norm}
-                st.session_state.ds_bo_qua = chosen_norms
-                
-                with st.spinner("⏳ Đang đồng bộ trạng thái Bỏ Qua lên Google Sheets..."):
-                    for idx_r, r_val in df_bh_m.iterrows():
-                        if r_val.get('lsc_norm') in chosen_norms:
-                            df_bh_m.at[idx_r, 'Nhãn Trạng Thái'] = 'BỎ QUA (Không theo dõi)'
-                    try:
-                        conn.update(worksheet="ChiTiet_BaoHanh", data=df_bh_m)
-                        st.toast("✅ Đã lưu trạng thái Bỏ Qua vĩnh viễn lên Google Sheets!", icon="🚀")
-                    except Exception as e_save_ig:
-                        st.warning(f"Lưu tạm bộ nhớ (chưa ghi Sheets): {e_save_ig}")
-                st.success("Đã cập nhật danh sách bỏ qua thành công!")
-                st.rerun()
+            if st.button("➕ Thêm vào danh sách Bỏ Qua", type="primary", use_container_width=True):
+                if nhap_lsc_bo_qua.strip():
+                    key_nhap = norm_lsc_key(nhap_lsc_bo_qua)
+                    matched_norms = [norm for norm in df_bh_m['lsc_norm'].unique() if key_nhap in norm]
+                    if matched_norms:
+                        for m_norm in matched_norms:
+                            st.session_state.ds_bo_qua.add(m_norm)
+                            for idx_r, r_val in df_bh_m.iterrows():
+                                if r_val.get('lsc_norm') == m_norm:
+                                    df_bh_m.at[idx_r, 'Nhãn Trạng Thái'] = 'BỎ QUA (Không theo dõi)'
+                        
+                        try:
+                            conn.update(worksheet="ChiTiet_BaoHanh", data=df_bh_m)
+                            st.toast("✅ Đã lưu trạng thái Bỏ Qua lên Google Sheets!", icon="🚀")
+                        except Exception as e_save:
+                            st.warning(f"Lưu bộ nhớ tạm: {e_save}")
+                        st.success(f"Đã gán nhãn BỎ QUA thành công cho: {nhap_lsc_bo_qua}")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Không tìm thấy lệnh '{nhap_lsc_bo_qua}' trong hệ thống dữ liệu!")
+                else:
+                    st.warning("Vui lòng nhập mã lệnh sửa chữa!")
 
         df_b_ignored = df_bh_m[
             df_bh_m['lsc_norm'].isin(st.session_state.ds_bo_qua) | 
@@ -707,6 +705,7 @@ if df_bh_active is not None and not df_bh_active.empty:
         else:
             st.info("Chưa có lệnh nào được gán nhãn Bỏ qua hoặc Không duyệt.")
 
+    # TAB 7: HÓA ĐƠN XUẤT NHÀ MÁY
     with t_b_inv:
         st.subheader(f"🧾 Hóa Đơn Xuất Nhà Máy ({sel_b_ky})")
         df_b_inv_target = df_b_filtered[df_b_filtered['Kỳ_Tính_Toán_DXBH'] != 'Chưa duyệt'].copy()
