@@ -1,39 +1,126 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import pandas as pd
 import json
+import re
 
-# Cấu hình trang Streamlit
 st.set_page_config(page_title="Báo Cáo Doanh Thu Xưởng Dịch Vụ VinFast", page_icon="📊", layout="wide")
 
-# Thanh sidebar hỗ trợ nhập link Google Sheet
+# Dữ liệu 7 tháng chuẩn mặc định (13.85 tỷ)
+DEFAULT_MONTHS = [
+    {
+        "id": "m1", "name": "Tháng 1",
+        "congBD": 105552349, "congSCC": 132185890, "ptBDSCC": 392433779,
+        "congGo": 33274750, "congSon": 67965091, "tongCongDS": 101239841, "ptDS": 420983471,
+        "congBH": 177852500, "ptBH": 633141964,
+        "cuuHo": 43466800, "total": 2006856594
+    },
+    {
+        "id": "m2", "name": "Tháng 2",
+        "congBD": 61107500, "congSCC": 95955155, "ptBDSCC": 204226871,
+        "congGo": 23450000, "congSon": 47083611, "tongCongDS": 70533611, "ptDS": 261003264,
+        "congBH": 126725000, "ptBH": 357115264,
+        "cuuHo": 6292785, "total": 1176292783
+    },
+    {
+        "id": "m3", "name": "Tháng 3",
+        "congBD": 96957944, "congSCC": 163173190, "ptBDSCC": 771805214,
+        "congGo": 80376666, "congSon": 119426804, "tongCongDS": 199803470, "ptDS": 486322661,
+        "congBH": 56215000, "ptBH": 288563726,
+        "cuuHo": 11399995, "total": 2060907866
+    },
+    {
+        "id": "m4", "name": "Tháng 4",
+        "congBD": 136176250, "congSCC": 109065486, "ptBDSCC": 511523675,
+        "congGo": 55667195, "congSon": 128411661, "tongCongDS": 184078856, "ptDS": 607035927,
+        "congBH": 126402500, "ptBH": 499518732,
+        "cuuHo": 15040600, "total": 2188842026
+    },
+    {
+        "id": "m5", "name": "Tháng 5",
+        "congBD": 85586250, "congSCC": 54650487, "ptBDSCC": 179987803,
+        "congGo": 68734375, "congSon": 152589500, "tongCongDS": 221323875, "ptDS": 444427264,
+        "congBH": 170097500, "ptBH": 486790109,
+        "cuuHo": 9252000, "total": 1652115288
+    },
+    {
+        "id": "m6", "name": "Tháng 6",
+        "congBD": 112101923, "congSCC": 49094157, "ptBDSCC": 213555761,
+        "congGo": 82175519, "congSon": 136316033, "tongCongDS": 218491552, "ptDS": 465689781,
+        "congBH": 152840000, "ptBH": 759515486,
+        "cuuHo": 63179000, "total": 2034467660
+    },
+    {
+        "id": "m7", "name": "Tháng 7",
+        "congBD": 103387506, "congSCC": 223356704, "ptBDSCC": 411113918,
+        "congGo": 96945250, "congSon": 153434000, "tongCongDS": 250379250, "ptDS": 488189498,
+        "congBH": 224862500, "ptBH": 987791454,
+        "cuuHo": 38256000, "total": 2727336830
+    }
+]
+
+# Nạp dữ liệu từ Google Sheet tab Data_doanhthu
+def fetch_from_gsheet(url):
+    try:
+        match_id = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
+        if not match_id:
+            return None
+        sheet_id = match_id.group(1)
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Data_doanhthu"
+        df = pd.read_csv(csv_url)
+        if "Thang" in df.columns:
+            res = []
+            for _, r in df.iterrows():
+                cbd = float(r.get("CongBaoDuong", 0))
+                cscc = float(r.get("CongSCC", 0))
+                ptbdscc = float(r.get("PhuTungBDSCC", 0))
+                cgo = float(r.get("CongGo", 0))
+                cson = float(r.get("CongSon", 0))
+                tongds = float(r.get("TongCongDS", cgo + cson))
+                ptds = float(r.get("PtDongSon", 0))
+                cbh = float(r.get("CongBaoHanh", 0))
+                ptbh = float(r.get("PtBaoHanh", 0))
+                cho = float(r.get("CuuHo", 0))
+                tot = float(r.get("TongCongCuuHo", cbd + cscc + ptbdscc + tongds + ptds + cbh + ptbh + cho))
+                res.append({
+                    "id": str(r.get("Thang")),
+                    "name": str(r.get("Thang")),
+                    "congBD": cbd, "congSCC": cscc, "ptBDSCC": ptbdscc,
+                    "congGo": cgo, "congSon": cson, "tongCongDS": tongds, "ptDS": ptds,
+                    "congBH": cbh, "ptBH": ptbh, "cuuHo": cho, "total": tot
+                })
+            return res
+    except Exception:
+        pass
+    return None
+
+# Sidebar quản lý đồng bộ
 with st.sidebar:
     st.header("🔗 Nguồn Dữ Liệu Google Sheet")
-    st.info("💡 Bạn có thể dán link Google Sheet chia sẻ công khai vào đây để đồng bộ số liệu tự động.")
-    gsheet_link = st.text_input("Link Google Sheet:", placeholder="https://docs.google.com/spreadsheets/d/...")
-    if st.button("🔄 Đồng bộ với Google Sheet", use_container_width=True):
-        st.success("✅ Hệ thống đã sẵn sàng kết nối!")
+    st.info("💡 Bạn chỉ cần dán link Google Sheet một lần, hệ thống sẽ tự động lưu và kéo số liệu mỗi khi reboot.")
+    saved_url = st.session_state.get("gsheet_url_saved", "")
+    gsheet_input = st.text_input("Link Google Sheet (tab Data_doanhthu):", value=saved_url, placeholder="https://docs.google.com/spreadsheets/d/...")
+    if gsheet_input:
+        st.session_state["gsheet_url_saved"] = gsheet_input
+        loaded_sheet = fetch_from_gsheet(gsheet_input)
+        if loaded_sheet:
+            st.success(f"✅ Đã kéo thành công {len(loaded_sheet)} tháng từ Google Sheet!")
+            DEFAULT_MONTHS = loaded_sheet
+        else:
+            st.warning("Đang dùng dữ liệu chuẩn hệ thống. Đảm bảo sheet có tên tab là 'Data_doanhthu'.")
 
-# Dữ liệu 7 tháng thực tế chuẩn 13.85 tỷ
-DATA_PAYLOAD = {
-    "actual": [
-        {"id": "m1", "name": "Tháng 1", "bdscc": 630.2, "ds": 522.2, "bh": 811.0, "ch": 43.5, "total": 2006.9, "labor": 411.3, "parts": 1552.1},
-        {"id": "m2", "name": "Tháng 2", "bdscc": 361.3, "ds": 331.5, "bh": 483.8, "ch": 6.3, "total": 1176.3, "labor": 257.6, "parts": 912.4},
-        {"id": "m3", "name": "Tháng 3", "bdscc": 1031.9, "ds": 686.1, "bh": 344.8, "ch": 11.4, "total": 2060.9, "labor": 456.0, "parts": 1593.5},
-        {"id": "m4", "name": "Tháng 4", "bdscc": 756.8, "ds": 791.1, "bh": 625.9, "ch": 15.0, "total": 2188.8, "labor": 427.2, "parts": 1746.6},
-        {"id": "m5", "name": "Tháng 5", "bdscc": 320.2, "ds": 665.8, "bh": 656.9, "ch": 9.3, "total": 1652.1, "labor": 361.6, "parts": 1281.3},
-        {"id": "m6", "name": "Tháng 6", "bdscc": 374.8, "ds": 684.2, "bh": 912.4, "ch": 63.2, "total": 2034.5, "labor": 483.4, "parts": 1488.9},
-        {"id": "m7", "name": "Tháng 7", "bdscc": 737.9, "ds": 738.6, "bh": 1212.7, "ch": 38.3, "total": 2727.3, "labor": 802.0, "parts": 1887.0}
-    ],
+data_payload = {
+    "actual": DEFAULT_MONTHS,
     "forecast": [
-        {"id": "f8", "name": "Tháng 8 (DK)", "total": 2130.0, "bdscc": 720.0, "ds": 705.0, "bh": 680.0, "ch": 25.0},
-        {"id": "f9", "name": "Tháng 9 (DK)", "total": 2225.0, "bdscc": 750.0, "ds": 730.0, "bh": 720.0, "ch": 25.0},
-        {"id": "f10", "name": "Tháng 10 (DK)", "total": 2320.0, "bdscc": 780.0, "ds": 760.0, "bh": 750.0, "ch": 30.0},
-        {"id": "f11", "name": "Tháng 11 (DK)", "total": 2420.0, "bdscc": 820.0, "ds": 790.0, "bh": 780.0, "ch": 30.0},
-        {"id": "f12", "name": "Tháng 12 (DK)", "total": 2550.0, "bdscc": 860.0, "ds": 830.0, "bh": 825.0, "ch": 35.0}
+        {"name": "Tháng 8 (DK)", "total": 2130000000, "bdscc": 720000000, "ds": 705000000, "bh": 680000000, "ch": 25000000},
+        {"name": "Tháng 9 (DK)", "total": 2225000000, "bdscc": 750000000, "ds": 730000000, "bh": 720000000, "ch": 25000000},
+        {"name": "Tháng 10 (DK)", "total": 2320000000, "bdscc": 780000000, "ds": 760000000, "bh": 750000000, "ch": 30000000},
+        {"name": "Tháng 11 (DK)", "total": 2420000000, "bdscc": 820000000, "ds": 790000000, "bh": 780000000, "ch": 30000000},
+        {"name": "Tháng 12 (DK)", "total": 2550000000, "bdscc": 860000000, "ds": 830000000, "bh": 825000000, "ch": 35000000}
     ]
 }
 
-data_json_str = json.dumps(DATA_PAYLOAD)
+data_json_str = json.dumps(data_payload)
 
 HTML_CONTENT = f"""
 <!DOCTYPE html>
@@ -48,11 +135,11 @@ HTML_CONTENT = f"""
         body {{ font-family: 'Inter', sans-serif; background-color: #f8fafc; margin: 0; padding: 12px; }}
         .tab-btn.active {{ background-color: #2563eb; color: #ffffff; border-color: #2563eb; font-weight: 600; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2); }}
         .month-pill.active {{ background-color: #2563eb; color: #ffffff; font-weight: 600; }}
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button {{ -webkit-appearance: none; margin: 0; }}
     </style>
 </head>
 <body class="text-slate-800">
 
-    <!-- KHUNG CHÍNH POPUP PREVIEW -->
     <div class="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden relative">
         
         <!-- HEADER -->
@@ -62,7 +149,7 @@ HTML_CONTENT = f"""
                 <div>
                     <div class="flex items-center space-x-2">
                         <h1 class="text-lg font-bold text-slate-900">Báo Cáo Phân Tích Doanh Thu Xưởng Dịch Vụ</h1>
-                        <span id="badgeMonthCount" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">Số Liệu Thực Tế 7 Tháng</span>
+                        <span id="badgeMonthCount" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">Số Liệu Thực Tế</span>
                     </div>
                     <p class="text-xs text-slate-500 mt-0.5">Bảo dưỡng định kỳ, Sửa chữa chung, Đồng Sơn, Bảo hành & Cứu hộ giao thông</p>
                 </div>
@@ -80,17 +167,17 @@ HTML_CONTENT = f"""
         <!-- THANH TAB 4 MỤC -->
         <div class="px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
             <div class="flex flex-wrap items-center gap-2">
-                <button id="btn-tab-1" onclick="switchTab(1)" class="tab-btn active px-4 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-700 transition flex items-center space-x-1.5">
-                    <span>📊 1. Số Liệu Thực Tế</span>
+                <button id="btn-tab-1" onclick="switchTab(1)" class="tab-btn active px-4 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-700 transition">
+                    📊 1. Số Liệu Thực Tế
                 </button>
-                <button id="btn-tab-2" onclick="switchTab(2)" class="tab-btn px-4 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-700 transition flex items-center space-x-1.5">
-                    <span>📅 2. Biểu Đồ Từng Tháng (Thực Tế)</span>
+                <button id="btn-tab-2" onclick="switchTab(2)" class="tab-btn px-4 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-700 transition">
+                    📅 2. Biểu Đồ Từng Tháng (Thực Tế)
                 </button>
-                <button id="btn-tab-3" onclick="switchTab(3)" class="tab-btn px-4 py-2 text-xs rounded-xl border border-purple-200 bg-purple-50 text-purple-700 transition flex items-center space-x-1.5">
-                    <span>🔮 3. Kế Hoạch & Dự Báo (T8 - T12) <span class="ml-1 text-[10px] bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded">Tab Riêng</span></span>
+                <button id="btn-tab-3" onclick="switchTab(3)" class="tab-btn px-4 py-2 text-xs rounded-xl border border-purple-200 bg-purple-50 text-purple-700 transition">
+                    🔮 3. Kế Hoạch & Dự Báo (T8 - T12) <span class="ml-1 text-[10px] bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded">Tab Riêng</span>
                 </button>
-                <button id="btn-tab-4" onclick="switchTab(4)" class="tab-btn px-4 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-700 transition flex items-center space-x-1.5">
-                    <span>📑 4. Bảng Tính Gốc (Excel)</span>
+                <button id="btn-tab-4" onclick="switchTab(4)" class="tab-btn px-4 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-700 transition">
+                    📑 4. Bảng Tính Gốc (Excel)
                 </button>
             </div>
             <div class="text-xs font-bold text-slate-600">
@@ -140,8 +227,8 @@ HTML_CONTENT = f"""
                         <span id="kpiRatio" class="text-2xl font-black text-slate-900 tracking-tight">2.59x</span>
                     </div>
                     <div class="mt-2 flex justify-between items-center text-xs">
-                        <span class="text-emerald-600 font-medium">PT: 71.3%</span>
-                        <span class="text-purple-600 font-medium">Công: 27.5%</span>
+                        <span id="kpiPtRatio" class="text-emerald-600 font-medium">PT: 71.3%</span>
+                        <span id="kpiLaborRatio" class="text-purple-600 font-medium">Công: 27.5%</span>
                     </div>
                 </div>
 
@@ -171,7 +258,7 @@ HTML_CONTENT = f"""
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div class="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
-                            <h2 id="chartTitleActual" class="text-sm font-bold text-slate-800">Biến Động Doanh Thu Thực Tế (Tháng 1 Đến Tháng 7)</h2>
+                            <h2 id="chartTitleActual" class="text-sm font-bold text-slate-800">Biến Động Doanh Thu Thực Tế</h2>
                             <div class="text-xs text-slate-500 font-medium">Đơn vị: Tỷ VNĐ</div>
                         </div>
                         <div class="h-80 w-full"><canvas id="stackedBarChart"></canvas></div>
@@ -211,7 +298,6 @@ HTML_CONTENT = f"""
                         <div id="monthPillContainer" class="flex flex-wrap gap-1.5 bg-slate-100 p-1.5 rounded-xl border border-slate-200"></div>
                     </div>
 
-                    <!-- THẺ CHI TIẾT THÁNG -->
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
                         <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
                             <div class="text-[11px] text-slate-500 font-semibold">Tổng Thu Tháng</div>
@@ -235,7 +321,6 @@ HTML_CONTENT = f"""
                         </div>
                     </div>
 
-                    <!-- BIỂU ĐỒ CHI TIẾT THÁNG -->
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
                         <div class="lg:col-span-2">
                             <div class="text-xs font-bold text-slate-700 mb-2">Doanh Thu 4 Trụ Cột Trong Tháng (Tách Tiền Công vs Phụ Tùng)</div>
@@ -251,7 +336,7 @@ HTML_CONTENT = f"""
                 </div>
             </div>
 
-            <!-- TAB 3: KẾ HOẠCH DỰ BÁO T8-T12 -->
+            <!-- TAB 3: KẾ HOẠCH DỰ BÁO -->
             <div id="content-tab-3" class="hidden">
                 <div class="bg-purple-50 p-4 rounded-xl border border-purple-200 mb-4 flex items-center justify-between">
                     <div class="flex items-center space-x-2">
@@ -309,54 +394,104 @@ HTML_CONTENT = f"""
 
         </div>
 
-        <!-- ================= POPUP MODAL NHẬP THÁNG THỰC TẾ ================= -->
-        <div id="addModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-            <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                    <div>
-                        <h3 class="text-sm font-bold text-slate-900">Thêm Số Liệu Doanh Thu Tháng Mới</h3>
-                        <p class="text-xs text-slate-500">Nhập doanh thu từng mảng, hệ thống tự động vẽ biểu đồ và tính MoM</p>
-                    </div>
-                    <button onclick="closeModal()" class="text-slate-400 hover:text-slate-700 text-lg font-bold p-1">✕</button>
-                </div>
+        <!-- ================= POPUP MODAL CHUẨN 100% NHƯ ẢNH 1 ================= -->
+        <div id="addModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto text-slate-200 animate-in fade-in zoom-in-95 duration-150">
                 
-                <form id="addMonthForm" onsubmit="handleSaveMonth(event)" class="p-6 space-y-4">
+                <!-- HEADER MODAL -->
+                <div class="flex items-center justify-between p-5 border-b border-slate-800">
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 mb-1">Tên Tháng Báo Cáo</label>
-                        <input type="text" id="inputMonthName" required class="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value="Tháng 8">
+                        <h3 class="text-base font-bold text-white">Thêm Số Liệu Doanh Thu Tháng Mới</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Nhập các trường tiền công và phụ tùng, hệ thống tự động cộng dồn doanh số</p>
                     </div>
+                    <button onclick="closeModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">✕</button>
+                </div>
 
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-700 mb-1">Bảo Dưỡng & SCC (Triệu đ)</label>
-                            <input type="number" step="0.1" id="inputBDSCC" required class="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="VD: 750.5" oninput="calculateModalTotal()">
+                <form onsubmit="handleSaveMonth(event)" class="p-5 space-y-4">
+                    <!-- TÊN THÁNG + NÚT SAO CHÉP -->
+                    <div class="flex items-center justify-between gap-4">
+                        <div class="w-1/2">
+                            <label class="block text-xs font-semibold text-slate-300 mb-1">Tên Tháng</label>
+                            <input type="text" id="inThang" required class="w-full px-3 py-2 text-xs bg-slate-800/80 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="Tháng 8">
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-700 mb-1">Tổ Đồng Sơn (Triệu đ)</label>
-                            <input type="number" step="0.1" id="inputDS" required class="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="VD: 760.0" oninput="calculateModalTotal()">
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-700 mb-1">Bảo Hành OEM (Triệu đ)</label>
-                            <input type="number" step="0.1" id="inputBH" required class="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="VD: 950.0" oninput="calculateModalTotal()">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-slate-700 mb-1">Cứu Hộ Giao Thông (Triệu đ)</label>
-                            <input type="number" step="0.1" id="inputCH" required class="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="VD: 40.0" oninput="calculateModalTotal()">
+                        <div class="pt-5">
+                            <button type="button" onclick="copyFromLastMonth()" class="text-xs font-medium text-blue-400 hover:text-blue-300 flex items-center space-x-1.5 transition">
+                                <span>✨</span>
+                                <span id="copyBtnLabel">Sao chép số từ Tháng 7</span>
+                            </button>
                         </div>
                     </div>
 
-                    <!-- HỘP TÍNH NHANH TỔNG THU -->
-                    <div class="p-3 bg-blue-50 rounded-xl border border-blue-200 flex justify-between items-center text-xs">
-                        <span class="text-blue-900 font-medium">Tổng Thu Tháng Dự Kiến:</span>
-                        <span id="modalCalcTotal" class="text-base font-bold text-blue-700">0.0 tr (~0.00 tỷ)</span>
+                    <!-- 1. BẢO DƯỠNG & SỬA CHỮA CHUNG -->
+                    <div class="p-4 bg-slate-800/40 rounded-xl border border-slate-700/60 space-y-3">
+                        <div class="text-xs font-bold text-blue-400 tracking-wide uppercase">1. BẢO DƯỠNG & SỬA CHỮA CHUNG</div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-[11px] text-slate-400 mb-1">Công Bảo Dưỡng</label>
+                                <input type="number" id="inCongBD" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="110000000" oninput="calcFormTotals()">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-400 mb-1">Công SCC</label>
+                                <input type="number" id="inCongSCC" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="150000000" oninput="calcFormTotals()">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-400 mb-1">Phụ tùng BD+SCC</label>
+                                <input type="number" id="inPtBDSCC" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="350000000" oninput="calcFormTotals()">
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="pt-2 flex justify-end space-x-2">
-                        <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition">Hủy bỏ</button>
-                        <button type="submit" class="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md transition active:scale-95">💾 Lưu & Cập Nhật Báo Cáo</button>
+                    <!-- 2. TỔ ĐỒNG SƠN (BODY & PAINT) -->
+                    <div class="p-4 bg-slate-800/40 rounded-xl border border-slate-700/60 space-y-3">
+                        <div class="text-xs font-bold text-amber-400 tracking-wide uppercase">2. TỔ ĐỒNG SƠN (BODY & PAINT)</div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-[11px] text-slate-400 mb-1">Công Gò</label>
+                                <input type="number" id="inCongGo" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="70000000" oninput="calcFormTotals()">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-400 mb-1">Công Sơn</label>
+                                <input type="number" id="inCongSon" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="130000000" oninput="calcFormTotals()">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-400 mb-1">PT Đồng Sơn</label>
+                                <input type="number" id="inPtDS" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="450000000" oninput="calcFormTotals()">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. BẢO HÀNH & CỨU HỘ -->
+                    <div class="p-4 bg-slate-800/40 rounded-xl border border-slate-700/60 space-y-3">
+                        <div class="text-xs font-bold text-emerald-400 tracking-wide uppercase">3. BẢO HÀNH & CỨU HỘ</div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-[11px] text-slate-400 mb-1">Công Bảo Hành</label>
+                                <input type="number" id="inCongBH" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="160000000" oninput="calcFormTotals()">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-400 mb-1">Phụ Tùng Bảo Hành</label>
+                                <input type="number" id="inPtBH" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="500000000" oninput="calcFormTotals()">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-400 mb-1">Cứu Hộ 24/7</label>
+                                <input type="number" id="inCuuHo" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="25000000" oninput="calcFormTotals()">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- THANH TỔNG HỢP NHANH -->
+                    <div class="p-3.5 bg-blue-950/40 rounded-xl border border-blue-900/60 flex flex-wrap justify-between items-center text-xs">
+                        <span class="text-slate-300">Tổng công ĐS (Gò+Sơn): <b id="formTotalDS" class="text-white font-bold">200.000.000 đ</b></span>
+                        <span class="text-slate-300">Tổng Doanh Thu Tháng: <b id="formGrandTotal" class="text-blue-400 font-extrabold text-sm">1.945.000.000 đ</b></span>
+                    </div>
+
+                    <!-- NÚT HÀNH ĐỘNG -->
+                    <div class="pt-3 flex justify-end space-x-3">
+                        <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition">Hủy Bỏ</button>
+                        <button type="submit" class="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-lg transition active:scale-95 flex items-center space-x-1.5">
+                            <span>+</span>
+                            <span>Thêm Vào Bảng Tính</span>
+                        </button>
                     </div>
                 </form>
             </div>
@@ -364,11 +499,9 @@ HTML_CONTENT = f"""
 
     </div>
 
-    <!-- JAVASCRIPT ĐIỀU KHIỂN DỮ LIỆU & CHART -->
+    <!-- JAVASCRIPT ĐIỀU KHIỂN -->
     <script>
-        // Tải từ LocalStorage nếu có
-        let saved = localStorage.getItem('vinfast_actual_data');
-        let appData = saved ? JSON.parse(saved) : {data_json_str};
+        let appData = {data_json_str};
 
         let barChart = null;
         let donutChart = null;
@@ -385,15 +518,12 @@ HTML_CONTENT = f"""
             document.getElementById('btn-tab-' + tabId).classList.add('active');
         }}
 
-        // Mở / Đóng Modal Thêm Tháng
         function openModal() {{
             const nextIdx = appData.actual.length + 1;
-            document.getElementById('inputMonthName').value = 'Tháng ' + nextIdx;
-            document.getElementById('inputBDSCC').value = '750';
-            document.getElementById('inputDS').value = '750';
-            document.getElementById('inputBH').value = '900';
-            document.getElementById('inputCH').value = '35';
-            calculateModalTotal();
+            document.getElementById('inThang').value = 'Tháng ' + nextIdx;
+            const last = appData.actual[appData.actual.length - 1];
+            document.getElementById('copyBtnLabel').innerText = 'Sao chép số từ ' + last.name;
+            calcFormTotals();
             document.getElementById('addModal').classList.remove('hidden');
         }}
 
@@ -401,38 +531,63 @@ HTML_CONTENT = f"""
             document.getElementById('addModal').classList.add('hidden');
         }}
 
-        function calculateModalTotal() {{
-            const bdscc = parseFloat(document.getElementById('inputBDSCC').value) || 0;
-            const ds = parseFloat(document.getElementById('inputDS').value) || 0;
-            const bh = parseFloat(document.getElementById('inputBH').value) || 0;
-            const ch = parseFloat(document.getElementById('inputCH').value) || 0;
-            const total = bdscc + ds + bh + ch;
-            document.getElementById('modalCalcTotal').innerText = total.toLocaleString('vi-VN', {{minimumFractionDigits: 1}}) + ' tr (~' + (total/1000).toFixed(2) + ' tỷ)';
+        function copyFromLastMonth() {{
+            const last = appData.actual[appData.actual.length - 1];
+            if (!last) return;
+            document.getElementById('inCongBD').value = last.congBD;
+            document.getElementById('inCongSCC').value = last.congSCC;
+            document.getElementById('inPtBDSCC').value = last.ptBDSCC;
+            document.getElementById('inCongGo').value = last.congGo;
+            document.getElementById('inCongSon').value = last.congSon;
+            document.getElementById('inPtDS').value = last.ptDS;
+            document.getElementById('inCongBH').value = last.congBH;
+            document.getElementById('inPtBH').value = last.ptBH;
+            document.getElementById('inCuuHo').value = last.cuuHo;
+            calcFormTotals();
+        }}
+
+        function calcFormTotals() {{
+            const cgo = parseFloat(document.getElementById('inCongGo').value) || 0;
+            const cson = parseFloat(document.getElementById('inCongSon').value) || 0;
+            const tongDS = cgo + cson;
+            document.getElementById('formTotalDS').innerText = tongDS.toLocaleString('vi-VN') + ' đ';
+
+            const cbd = parseFloat(document.getElementById('inCongBD').value) || 0;
+            const cscc = parseFloat(document.getElementById('inCongSCC').value) || 0;
+            const ptbdscc = parseFloat(document.getElementById('inPtBDSCC').value) || 0;
+            const ptds = parseFloat(document.getElementById('inPtDS').value) || 0;
+            const cbh = parseFloat(document.getElementById('inCongBH').value) || 0;
+            const ptbh = parseFloat(document.getElementById('inPtBH').value) || 0;
+            const cho = parseFloat(document.getElementById('inCuuHo').value) || 0;
+
+            const grand = cbd + cscc + ptbdscc + tongDS + ptds + cbh + ptbh + cho;
+            document.getElementById('formGrandTotal').innerText = grand.toLocaleString('vi-VN') + ' đ';
         }}
 
         function handleSaveMonth(e) {{
             e.preventDefault();
-            const name = document.getElementById('inputMonthName').value;
-            const bdscc = parseFloat(document.getElementById('inputBDSCC').value) || 0;
-            const ds = parseFloat(document.getElementById('inputDS').value) || 0;
-            const bh = parseFloat(document.getElementById('inputBH').value) || 0;
-            const ch = parseFloat(document.getElementById('inputCH').value) || 0;
-            const total = bdscc + ds + bh + ch;
+            const name = document.getElementById('inThang').value;
+            const cbd = parseFloat(document.getElementById('inCongBD').value) || 0;
+            const cscc = parseFloat(document.getElementById('inCongSCC').value) || 0;
+            const ptbdscc = parseFloat(document.getElementById('inPtBDSCC').value) || 0;
+            const cgo = parseFloat(document.getElementById('inCongGo').value) || 0;
+            const cson = parseFloat(document.getElementById('inCongSon').value) || 0;
+            const tongds = cgo + cson;
+            const ptds = parseFloat(document.getElementById('inPtDS').value) || 0;
+            const cbh = parseFloat(document.getElementById('inCongBH').value) || 0;
+            const ptbh = parseFloat(document.getElementById('inPtBH').value) || 0;
+            const cho = parseFloat(document.getElementById('inCuuHo').value) || 0;
+            const total = cbd + cscc + ptbdscc + tongds + ptds + cbh + ptbh + cho;
 
             const newRec = {{
                 id: 'm' + (appData.actual.length + 1),
                 name: name,
-                bdscc: bdscc,
-                ds: ds,
-                bh: bh,
-                ch: ch,
-                total: total,
-                labor: total * 0.3,
-                parts: total * 0.7
+                congBD: cbd, congSCC: cscc, ptBDSCC: ptbdscc,
+                congGo: cgo, congSon: cson, tongCongDS: tongds, ptDS: ptds,
+                congBH: cbh, ptBH: ptbh, cuuHo: cho, total: total
             }};
 
             appData.actual.push(newRec);
-            localStorage.setItem('vinfast_actual_data', JSON.stringify(appData));
             closeModal();
 
             currentSelectedMonthIdx = appData.actual.length - 1;
@@ -442,13 +597,12 @@ HTML_CONTENT = f"""
         function refreshAllUI() {{
             const actual = appData.actual;
             const totalSum = actual.reduce((s, r) => s + r.total, 0);
-            const totalTỷ = (totalSum / 1000).toFixed(2);
-            const avgMonth = (totalSum / actual.length / 1000).toFixed(2);
+            const totalTy = (totalSum / 1000000000).toFixed(2);
+            const avgMonth = (totalSum / actual.length / 1000000000).toFixed(2);
 
-            // KPI
-            document.getElementById('topTotalActual').innerText = totalTỷ + ' tỷ';
+            document.getElementById('topTotalActual').innerText = totalTy + ' tỷ';
             document.getElementById('badgeMonthCount').innerText = 'Số Liệu Thực Tế ' + actual.length + ' Tháng';
-            document.getElementById('kpiYTD').innerText = totalTỷ;
+            document.getElementById('kpiYTD').innerText = totalTy;
             document.getElementById('kpiAvgMonth').innerText = 'TB: ' + avgMonth + ' tỷ / tháng';
             document.getElementById('kpiMonthCount').innerText = actual.length + ' tháng';
 
@@ -459,22 +613,30 @@ HTML_CONTENT = f"""
                 if (r.total > peak.total) {{ peak = r; peakIdx = idx; }}
             }});
             document.getElementById('kpiPeakMonth').innerText = peak.name;
-            document.getElementById('kpiPeakRev').innerText = (peak.total / 1000).toFixed(2) + ' tỷ';
+            document.getElementById('kpiPeakRev').innerText = (peak.total / 1000000000).toFixed(2) + ' tỷ';
             if (peakIdx > 0) {{
                 const prev = actual[peakIdx - 1];
                 const mom = ((peak.total - prev.total) / prev.total) * 100;
                 document.getElementById('kpiPeakMoM').innerText = (mom > 0 ? '+' : '') + mom.toFixed(1) + '% MoM';
             }}
 
-            // Chart Tab 1
+            // Ratios
+            const totalLabor = actual.reduce((s, r) => s + r.congBD + r.congSCC + r.tongCongDS + r.congBH, 0);
+            const totalParts = actual.reduce((s, r) => s + r.ptBDSCC + r.ptDS + r.ptBH, 0);
+            const ratio = (totalParts / (totalLabor || 1)).toFixed(2);
+            document.getElementById('kpiRatio').innerText = ratio + 'x';
+            document.getElementById('kpiPtRatio').innerText = 'PT: ' + ((totalParts / totalSum) * 100).toFixed(1) + '%';
+            document.getElementById('kpiLaborRatio').innerText = 'Công: ' + ((totalLabor / totalSum) * 100).toFixed(1) + '%';
+
+            // Warranty
+            const totalBH = actual.reduce((s, r) => s + r.congBH + r.ptBH, 0);
+            document.getElementById('kpiBH').innerText = (totalBH / 1000000000).toFixed(2);
+            document.getElementById('kpiBHRate').innerText = 'Chiếm ' + ((totalBH / totalSum) * 100).toFixed(1) + '% toàn xưởng';
+
             document.getElementById('chartTitleActual').innerText = 'Biến Động Doanh Thu Thực Tế (Tháng 1 Đến ' + actual[actual.length - 1].name + ')';
             renderTab1Charts();
-
-            // Month Selector Tab 2
             renderTab2MonthPills();
             selectMonth(currentSelectedMonthIdx);
-
-            // Table Tab 4
             renderTab4Table();
         }}
 
@@ -489,10 +651,10 @@ HTML_CONTENT = f"""
                 data: {{
                     labels: labels,
                     datasets: [
-                        {{ label: 'BD & SCC', data: actual.map(d => d.bdscc / 1000), backgroundColor: '#2563eb' }},
-                        {{ label: 'Đồng Sơn', data: actual.map(d => d.ds / 1000), backgroundColor: '#f59e0b' }},
-                        {{ label: 'Bảo Hành OEM', data: actual.map(d => d.bh / 1000), backgroundColor: '#10b981' }},
-                        {{ label: 'Cứu Hộ', data: actual.map(d => d.ch / 1000), backgroundColor: '#8b5cf6' }}
+                        {{ label: 'BD & SCC', data: actual.map(d => (d.congBD + d.congSCC + d.ptBDSCC) / 1000000000), backgroundColor: '#2563eb' }},
+                        {{ label: 'Đồng Sơn', data: actual.map(d => (d.tongCongDS + d.ptDS) / 1000000000), backgroundColor: '#f59e0b' }},
+                        {{ label: 'Bảo Hành OEM', data: actual.map(d => (d.congBH + d.ptBH) / 1000000000), backgroundColor: '#10b981' }},
+                        {{ label: 'Cứu Hộ', data: actual.map(d => d.cuuHo / 1000000000), backgroundColor: '#8b5cf6' }}
                     ]
                 }},
                 options: {{
@@ -506,24 +668,18 @@ HTML_CONTENT = f"""
                 }}
             }});
 
-            // Donut Totals
-            const totBDSCC = actual.reduce((s, r) => s + r.bdscc, 0);
-            const totDS = actual.reduce((s, r) => s + r.ds, 0);
-            const totBH = actual.reduce((s, r) => s + r.bh, 0);
-            const totCH = actual.reduce((s, r) => s + r.ch, 0);
+            const totBDSCC = actual.reduce((s, r) => s + (r.congBD + r.congSCC + r.ptBDSCC), 0);
+            const totDS = actual.reduce((s, r) => s + (r.tongCongDS + r.ptDS), 0);
+            const totBH = actual.reduce((s, r) => s + (r.congBH + r.ptBH), 0);
+            const totCH = actual.reduce((s, r) => s + r.cuuHo, 0);
             const grandTotal = totBDSCC + totDS + totBH + totCH;
 
-            const pBDSCC = ((totBDSCC / grandTotal) * 100).toFixed(1);
-            const pDS = ((totDS / grandTotal) * 100).toFixed(1);
-            const pBH = ((totBH / grandTotal) * 100).toFixed(1);
-            const pCH = ((totCH / grandTotal) * 100).toFixed(1);
-
-            document.getElementById('donutCenterTotal').innerText = (grandTotal / 1000).toFixed(2) + ' tỷ';
+            document.getElementById('donutCenterTotal').innerText = (grandTotal / 1000000000).toFixed(2) + ' tỷ';
             document.getElementById('donutLegend').innerHTML = `
-                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span><span>Bảo Dưỡng & SCC</span></div><span class="font-bold">${{pBDSCC}}%</span></div>
-                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span><span>Đồng Sơn (Gò + Sơn)</span></div><span class="font-bold">${{pDS}}%</span></div>
-                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span><span>Bảo Hành Chính Hãng</span></div><span class="font-bold">${{pBH}}%</span></div>
-                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-purple-600"></span><span>Cứu Hộ Giao Thông</span></div><span class="font-bold">${{pCH}}%</span></div>
+                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span><span>Bảo Dưỡng & SCC</span></div><span class="font-bold">${{((totBDSCC/grandTotal)*100).toFixed(1)}}%</span></div>
+                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span><span>Đồng Sơn (Gò + Sơn)</span></div><span class="font-bold">${{((totDS/grandTotal)*100).toFixed(1)}}%</span></div>
+                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span><span>Bảo Hành Chính Hãng</span></div><span class="font-bold">${{((totBH/grandTotal)*100).toFixed(1)}}%</span></div>
+                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-purple-600"></span><span>Cứu Hộ Giao Thông</span></div><span class="font-bold">${{((totCH/grandTotal)*100).toFixed(1)}}%</span></div>
             `;
 
             const ctxDonut = document.getElementById('donutChart').getContext('2d');
@@ -535,15 +691,10 @@ HTML_CONTENT = f"""
                     datasets: [{{
                         data: [totBDSCC, totDS, totBH, totCH],
                         backgroundColor: ['#2563eb', '#f59e0b', '#10b981', '#8b5cf6'],
-                        borderWidth: 2,
                         cutout: '72%'
                     }}]
                 }},
-                options: {{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {{ legend: {{ display: false }} }}
-                }}
+                options: {{ responsive: true, maintainAspectRatio: false, plugins: {{ legend: {{ display: false }} }} }}
             }});
         }}
 
@@ -571,52 +722,48 @@ HTML_CONTENT = f"""
             const m = appData.actual[idx];
             document.getElementById('monthTitle').innerText = 'Biểu Đồ Phân Tích ' + m.name + ' (Thực Tế)';
             
-            // Check if peak
             let maxTotal = Math.max(...appData.actual.map(x => x.total));
             document.getElementById('monthBadge').style.display = (m.total >= maxTotal) ? 'inline-block' : 'none';
-            document.getElementById('monthTotalText').innerText = (m.total * 1000000).toLocaleString('vi-VN') + ' đ';
+            document.getElementById('monthTotalText').innerText = m.total.toLocaleString('vi-VN') + ' đ';
             
-            document.getElementById('mCardTotal').innerText = (m.total / 1000).toFixed(2) + ' tỷ';
-            document.getElementById('mCardSub').innerText = (m.total * 1000000).toLocaleString('vi-VN') + ' đ';
+            document.getElementById('mCardTotal').innerText = (m.total / 1000000000).toFixed(2) + ' tỷ';
+            document.getElementById('mCardSub').innerText = m.total.toLocaleString('vi-VN') + ' đ';
             
-            // MoM
             if (idx > 0) {{
                 const prev = appData.actual[idx - 1];
                 const mom = ((m.total - prev.total) / prev.total) * 100;
                 document.getElementById('mCardMoM').innerText = (mom > 0 ? '+' : '') + mom.toFixed(1) + '%';
                 document.getElementById('mCardMoM').className = 'text-lg font-bold mt-1 ' + (mom >= 0 ? 'text-emerald-600' : 'text-red-500');
-                document.getElementById('mCardPrev').innerText = 'Tháng trước: ' + (prev.total / 1000).toFixed(2) + ' tỷ';
+                document.getElementById('mCardPrev').innerText = 'Tháng trước: ' + (prev.total / 1000000000).toFixed(2) + ' tỷ';
             }} else {{
                 document.getElementById('mCardMoM').innerText = '—';
                 document.getElementById('mCardPrev').innerText = 'Kỳ báo cáo đầu';
             }}
 
-            const ratio = (m.parts / (m.labor || 1)).toFixed(2);
+            const mLabor = m.congBD + m.congSCC + m.tongCongDS + m.congBH;
+            const mParts = m.ptBDSCC + m.ptDS + m.ptBH;
+            const ratio = (mParts / (mLabor || 1)).toFixed(2);
             document.getElementById('mCardRatio').innerText = ratio + 'x';
-            document.getElementById('mCardRatioSub').innerText = 'Công: ' + m.labor.toFixed(0) + ' tr | PT: ' + m.parts.toFixed(0) + ' tr';
-            document.getElementById('mCardCH').innerText = m.ch.toFixed(1) + ' tr';
-            document.getElementById('mCardCHSub').innerText = 'Chiếm ' + ((m.ch / m.total) * 100).toFixed(1) + '% tháng';
+            document.getElementById('mCardRatioSub').innerText = 'Công: ' + (mLabor/1000000).toFixed(0) + ' tr | PT: ' + (mParts/1000000000).toFixed(2) + ' tỷ';
+            document.getElementById('mCardCH').innerText = (m.cuuHo / 1000000).toFixed(1) + ' tr';
+            document.getElementById('mCardCHSub').innerText = 'Chiếm ' + ((m.cuuHo / m.total) * 100).toFixed(1) + '% tháng';
 
-            updateMonthCharts(m);
+            updateMonthCharts(m, mLabor, mParts);
         }}
 
-        function updateMonthCharts(m) {{
+        function updateMonthCharts(m, mLabor, mParts) {{
             const ctxMBar = document.getElementById('monthColChart').getContext('2d');
             if (monthBarChart) monthBarChart.destroy();
             monthBarChart = new Chart(ctxMBar, {{
                 type: 'bar',
                 data: {{
-                    labels: ['Bảo Dưỡng & SCC', 'Tổ Đồng Sơn', 'Bảo Hành OEM', 'Cứu Hộ'],
+                    labels: ['Bảo Dưỡng & SCC', 'Tổ Đồng Sơn', 'Bảo Hành (OEM)', 'Cứu Hộ Giao Thông'],
                     datasets: [
-                        {{ label: 'Tiền Công', data: [m.labor * 0.35, m.labor * 0.35, m.labor * 0.3, 0], backgroundColor: '#3b82f6' }},
-                        {{ label: 'Phụ Tùng', data: [m.parts * 0.25, m.parts * 0.3, m.parts * 0.45, 0], backgroundColor: '#ec4899' }}
+                        {{ label: 'Tiền Công', data: [m.congBD + m.congSCC, m.tongCongDS, m.congBH, 0], backgroundColor: '#3b82f6' }},
+                        {{ label: 'Phụ Tùng', data: [m.ptBDSCC, m.ptDS, m.ptBH, 0], backgroundColor: '#ec4899' }}
                     ]
                 }},
-                options: {{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {{ x: {{ stacked: true }}, y: {{ stacked: true }} }}
-                }}
+                options: {{ responsive: true, maintainAspectRatio: false, scales: {{ x: {{ stacked: true }}, y: {{ stacked: true }} }} }}
             }});
 
             const ctxMPie = document.getElementById('monthDonutChart').getContext('2d');
@@ -624,9 +771,9 @@ HTML_CONTENT = f"""
             monthPieChart = new Chart(ctxMPie, {{
                 type: 'doughnut',
                 data: {{
-                    labels: ['BD & SCC', 'Đồng Sơn', 'Bảo Hành', 'Cứu Hộ'],
+                    labels: ['Bảo Dưỡng & SCC', 'Tổ Đồng Sơn', 'Bảo Hành (OEM)', 'Cứu Hộ Giao Thông'],
                     datasets: [{{
-                        data: [m.bdscc, m.ds, m.bh, m.ch],
+                        data: [m.congBD + m.congSCC + m.ptBDSCC, m.tongCongDS + m.ptDS, m.congBH + m.ptBH, m.cuuHo],
                         backgroundColor: ['#2563eb', '#f59e0b', '#10b981', '#8b5cf6'],
                         cutout: '65%'
                     }}]
@@ -647,15 +794,20 @@ HTML_CONTENT = f"""
                     momText = (mom > 0 ? '+' : '') + mom.toFixed(1) + '%';
                     momClass = mom >= 0 ? 'text-emerald-600 font-bold' : 'text-red-500 font-bold';
                 }}
+                const bdscc = (r.congBD + r.congSCC + r.ptBDSCC) / 1000000;
+                const ds = (r.tongCongDS + r.ptDS) / 1000000;
+                const bh = (r.congBH + r.ptBH) / 1000000;
+                const ch = r.cuuHo / 1000000;
+
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td class="p-3 font-bold">${{r.name}}</td>
-                    <td class="p-3 text-right font-bold">${{(r.total * 1000000).toLocaleString('vi-VN')}} đ</td>
+                    <td class="p-3 text-right font-bold">${{r.total.toLocaleString('vi-VN')}} đ</td>
                     <td class="p-3 text-center ${{momClass}}">${{momText}}</td>
-                    <td class="p-3 text-right">${{r.bdscc.toFixed(1)}} tr</td>
-                    <td class="p-3 text-right">${{r.ds.toFixed(1)}} tr</td>
-                    <td class="p-3 text-right">${{r.bh.toFixed(1)}} tr</td>
-                    <td class="p-3 text-right">${{r.ch.toFixed(1)}} tr</td>
+                    <td class="p-3 text-right">${{bdscc.toFixed(1)}} tr</td>
+                    <td class="p-3 text-right">${{ds.toFixed(1)}} tr</td>
+                    <td class="p-3 text-right">${{bh.toFixed(1)}} tr</td>
+                    <td class="p-3 text-right">${{ch.toFixed(1)}} tr</td>
                 `;
                 tbody.appendChild(tr);
             }});
@@ -664,30 +816,29 @@ HTML_CONTENT = f"""
             document.getElementById('tableActualFoot').innerHTML = `
                 <tr class="bg-slate-100 font-bold text-slate-900">
                     <td class="p-3">TỔNG CỘNG ${{appData.actual.length}} THÁNG</td>
-                    <td class="p-3 text-right text-emerald-700 font-black">${{(total * 1000000).toLocaleString('vi-VN')}} đ</td>
-                    <td class="p-3 text-center">~${{(total/appData.actual.length/1000).toFixed(2)}} tỷ/tháng</td>
+                    <td class="p-3 text-right text-emerald-700 font-black">${{total.toLocaleString('vi-VN')}} đ</td>
+                    <td class="p-3 text-center">~${{(total/appData.actual.length/1000000000).toFixed(2)}} tỷ/tháng</td>
                     <td colspan="4" class="p-3 text-right text-slate-600">Đã chốt sổ phát sinh</td>
                 </tr>
             `;
         }}
 
         function exportToCSV() {{
-            let csv = "Thang,BD_SCC,Dong_Son,Bao_Hanh_OEM,Cuu_Ho,Tong_Cong_Trieu_Dong\\n";
+            let csv = "Thang,CongBaoDuong,CongSCC,PhuTungBDSCC,CongGo,CongSon,TongCongDS,PtDongSon,CongBaoHanh,PtBaoHanh,CuuHo,TongCongCuuHo\\n";
             appData.actual.forEach(r => {{
-                csv += `${{r.name}},${{r.bdscc}},${{r.ds}},${{r.bh}},${{r.ch}},${{r.total}}\\n`;
+                csv += `${{r.name}},${{r.congBD}},${{r.congSCC}},${{r.ptBDSCC}},${{r.congGo}},${{r.congSon}},${{r.tongCongDS}},${{r.ptDS}},${{r.congBH}},${{r.ptBH}},${{r.cuuHo}},${{r.total}}\\n`;
             }});
             const blob = new Blob([csv], {{ type: 'text/csv;charset=utf-8;' }});
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.download = "Bao_Cao_Doanh_Thu_VinFast.csv";
+            link.download = "Data_doanhthu_VinFast.csv";
             link.click();
         }}
 
-        // Khởi động toàn bộ giao diện
         refreshAllUI();
     </script>
 </body>
 </html>
 """
 
-components.html(HTML_CONTENT, height=940, scrolling=True)
+components.html(HTML_CONTENT, height=950, scrolling=True)
