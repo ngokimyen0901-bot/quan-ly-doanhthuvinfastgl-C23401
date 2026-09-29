@@ -39,36 +39,47 @@ def kiem_tra_sau_29082026_bh(lsc_str, ngay_str=""):
     return True
 
 def tinh_ky_quyet_toan_bh(ngay_val):
+    """Tính chu kỳ 23-22: Từ 29/08/2026 trở đi tối thiểu là Kỳ Tháng 09/2026"""
     if pd.isna(ngay_val) or not str(ngay_val).strip(): return "Chưa duyệt"
     dt = pd.to_datetime(ngay_val, errors='coerce')
     if pd.isna(dt): return "Chưa duyệt"
     if dt < pd.Timestamp("2026-08-29"): return "Chưa duyệt"
-    if dt.day <= 22: thang = dt.month; nam = dt.year
+    
+    if dt.day <= 22:
+        thang = dt.month
+        nam = dt.year
     else:
-        if dt.month == 12: thang = 1; nam = dt.year + 1
-        else: thang = dt.month + 1; nam = dt.year
+        if dt.month == 12:
+            thang = 1
+            nam = dt.year + 1
+        else:
+            thang = dt.month + 1
+            nam = dt.year
+            
+    # Khóa chặn: Tuyệt đối không có Kỳ Tháng 08/2026
+    if nam < 2026 or (nam == 2026 and thang < 9):
+        thang = 9
+        nam = 2026
+        
     return f"Kỳ Tháng {thang:02d}/{nam}"
 
 def xoa_sach_emoji(val):
-    """Làm sạch emoji khi đẩy dữ liệu lên Google Sheets"""
     if pd.isna(val) or val is None: return ""
     s = str(val)
     return re.sub(r'[🔴🔵🟢⚪⏳⌛🚨💡🛠️🧾📋🔄🔎📌🚗🚕❌⚠️✅]', '', s).strip()
 
 def to_mau_trang_thai(val):
-    """Tô màu trạng thái trực tiếp trên web theo yêu cầu"""
     s = str(val).lower()
     if any(k in s for k in ['trả về', 'từ chối', 'không duyệt', 'hủy', 'chưa upload', 'chưa đề xuất']):
-        return 'background-color: #ffebee; color: #c62828; font-weight: bold;'  # Nền đỏ cảnh báo
+        return 'background-color: #ffebee; color: #c62828; font-weight: bold;'
     elif any(k in s for k in ['chờ', 'hậu kiểm', 'chờ duyệt']):
-        return 'background-color: #e3f2fd; color: #1565c0; font-weight: bold;'  # Nền xanh pastel
-    # Đã duyệt để nền trắng nguyên bản (không màu nền)
+        return 'background-color: #e3f2fd; color: #1565c0; font-weight: bold;'
     return ''
 
 if "ds_bo_qua" not in st.session_state:
     st.session_state.ds_bo_qua = set()
 
-# ĐỌC THÔNG TIN TỪ MASTERDATA ĐỂ ĐỒNG BỘ CHÉO
+# ĐỌC MASTERDATA LÀM DỮ LIỆU THAY THẾ KHI KHÔNG TẢI FILE SỐ 1
 @st.cache_data(ttl=60)
 def lay_du_lieu_master_data():
     try:
@@ -86,15 +97,17 @@ df_master_ref = lay_du_lieu_master_data()
 df_bh_active = None
 is_bh_from_gsheets = False
 
-with st.expander("📥 Nạp Tệp Dữ Liệu Đối Soát Bảo Hành Mới (Tự lưu sheet ChiTiet_BaoHanh)", expanded=False):
+with st.expander("📥 Nạp Tệp Dữ Liệu Đối Soát (Chỉ cần nạp 2 tệp số 2 & 3 là chạy mượt mà)", expanded=False):
+    st.info("💡 **Gợi ý linh hoạt:** Bạn chỉ cần nạp **2 tệp cốt lõi (Chi tiết lệnh + Cổng ĐXBH)** là hệ thống tự chạy đối soát và lấy thông tin xe từ MasterData. Tệp số 1 và số 4 là tùy chọn bổ sung.")
     c_up1, c_up2 = st.columns(2)
     with c_up1:
-        up_bh_db = st.file_uploader("1. Database Tổng (`database..csv` hoặc lấy từ MasterData):", type=['csv', 'xlsx', 'xls'], key="bh_up_db")
-        up_bh_ct = st.file_uploader("2. Chi Tiết Lệnh DMS (`chitietlenh.csv`):", type=['csv', 'xlsx', 'xls'], key="bh_up_ct")
+        up_bh_db = st.file_uploader("1. Database Tổng (Tùy chọn - nếu không có sẽ tự lấy từ MasterData):", type=['csv', 'xlsx', 'xls'], key="bh_up_db")
+        up_bh_ct = st.file_uploader("2. Chi Tiết Lệnh DMS (Bắt buộc - chitietlenh.csv):", type=['csv', 'xlsx', 'xls'], key="bh_up_ct")
     with c_up2:
-        up_bh_dx = st.file_uploader("3. Cổng Đề Xuất BH (`dexuatbaohanh.csv`):", type=['csv', 'xlsx', 'xls'], key="bh_up_dx")
-        up_bh_wcs = st.file_uploader("4. Bảng Kê Nhà Máy Duyệt (`BangKe_...xlsx`):", type=['xlsx', 'xls'], key="bh_up_wcs")
+        up_bh_dx = st.file_uploader("3. Cổng Đề Xuất BH (Bắt buộc - dexuatbaohanh.csv):", type=['csv', 'xlsx', 'xls'], key="bh_up_dx")
+        up_bh_wcs = st.file_uploader("4. Bảng Kê Nhà Máy Duyệt (Tùy chọn khi có WCS):", type=['xlsx', 'xls'], key="bh_up_wcs")
 
+# CHỈ CẦN NẠP ĐỦ 2 TỆP (CHI TIẾT LỆNH + ĐỀ XUẤT BH) LÀ CHẠY
 if up_bh_ct and up_bh_dx:
     try:
         df_b_db = pd.read_excel(up_bh_db) if up_bh_db and up_bh_db.name.lower().endswith(('.xlsx', '.xls')) else (pd.read_csv(up_bh_db, low_memory=False) if up_bh_db else df_master_ref.copy())
@@ -266,7 +279,6 @@ if up_bh_ct and up_bh_dx:
                         if c_num in df_bh_sync.columns:
                             df_bh_sync[c_num] = pd.to_numeric(df_bh_sync[c_num], errors='coerce').fillna(0)
 
-                    # Lưu sạch lên Google Sheets: KHÔNG CÓ EMOJI
                     for c_txt in df_bh_sync.select_dtypes(include='object').columns:
                         df_bh_sync[c_txt] = df_bh_sync[c_txt].apply(xoa_sach_emoji)
 
@@ -294,6 +306,9 @@ elif df_bh_active is None:
                 
                 df_bh_active['lsc_norm'] = df_bh_active[col_b_ct_lsc].apply(norm_lsc_key)
 
+                if 'Nhãn Trạng Thái' in df_bh_active.columns:
+                    df_bh_active['Nhãn Trạng Thái'] = df_bh_active['Nhãn Trạng Thái'].apply(xoa_sach_emoji)
+
                 if not df_master_ref.empty and 'lsc_norm' in df_master_ref.columns:
                     map_bs = df_master_ref.set_index('lsc_norm')['Biển số'].to_dict() if 'Biển số' in df_master_ref.columns else {}
                     map_cv = df_master_ref.set_index('lsc_norm')['Cố vấn dịch vụ'].to_dict() if 'Cố vấn dịch vụ' in df_master_ref.columns else {}
@@ -316,7 +331,7 @@ elif df_bh_active is None:
                     df_bh_active['Kỳ_Tính_Toán_DXBH'] = df_bh_active[col_ngay_pd_old].apply(tinh_ky_quyet_toan_bh) if col_ngay_pd_old else 'Chưa duyệt'
                 if 'Nhãn Trạng Thái' not in df_bh_active.columns:
                     col_tt_old = next((c for c in df_bh_active.columns if 'trạng thái' in c.lower()), None)
-                    df_bh_active['Nhãn Trạng Thái'] = df_bh_active[col_tt_old].fillna('Chưa duyệt') if col_tt_old else 'Chưa duyệt'
+                    df_bh_active['Nhãn Trạng Thái'] = df_bh_active[col_tt_old].apply(xoa_sach_emoji).fillna('Chưa duyệt') if col_tt_old else 'Chưa duyệt'
                 if 'Ngày_Duyệt_Format' not in df_bh_active.columns:
                     col_ngay_pd_old = next((c for c in df_bh_active.columns if 'phê duyệt' in c.lower() and 'ngày' in c.lower()), None)
                     df_bh_active['Ngày_Duyệt_Format'] = pd.to_datetime(df_bh_active[col_ngay_pd_old], errors='coerce').dt.strftime('%d/%m/%Y %H:%M').fillna('Chưa duyệt') if col_ngay_pd_old else 'Chưa duyệt'
@@ -340,12 +355,13 @@ if df_bh_active is not None and not df_bh_active.empty:
         sel_b_tt = st.selectbox("1. Trạng Thái LSC:", list_b_tt, index=list_b_tt.index("Đã đóng") if "Đã đóng" in list_b_tt else 0)
 
     with fl_b2:
+        # CHỈ LẤY CÁC KỲ TỪ THÁNG 09/2026 TRỞ ĐI
         ky_thuc_te_set = set()
         for v in df_bh_m['Kỳ_Tính_Toán_DXBH'].dropna().unique():
             m_ky = re.search(r'Tháng (\d{1,2})/(\d{4})', str(v))
             if m_ky:
                 thang_num, nam_num = int(m_ky.group(1)), int(m_ky.group(2))
-                if (nam_num > 2026) or (nam_num == 2026 and thang_num >= 8):
+                if (nam_num > 2026) or (nam_num == 2026 and thang_num >= 9):
                     ky_thuc_te_set.add((nam_num, thang_num))
 
         sorted_kys = sorted(list(ky_thuc_te_set), key=lambda x: (x[0], x[1]), reverse=True)
@@ -725,4 +741,4 @@ if df_bh_active is not None and not df_bh_active.empty:
         else:
             st.info("Không có dữ liệu hóa đơn bảo hành cho kỳ này.")
 else:
-    st.info("💡 Chưa có dữ liệu đối soát bảo hành. Hãy mở mục **'Nạp Các Tệp Dữ Liệu Đối Soát Bảo Hành Mới'** phía trên để tải file lên.")
+    st.info("💡 Chưa có dữ liệu đối soát bảo hành. Hãy mở mục **'Nạp Tệp Dữ Liệu Đối Soát'** phía trên để tải 2 tệp (Chi tiết lệnh + Cổng ĐXBH) lên.")
