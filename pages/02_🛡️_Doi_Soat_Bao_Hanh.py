@@ -477,6 +477,32 @@ if df_bh_active is not None and not df_bh_active.empty:
         "Nhãn Trạng Thái": st.column_config.TextColumn("Trạng Thái Phê Duyệt", width="large")
     }
 
+    # HÀM BUNG BẢNG CHI TIẾT CÔNG VIỆC/PHỤ TÙNG KHI CHỌN XE
+    def render_sub_table_chi_tiet(df_source, selected_ro, table_key):
+        df_sub = df_source[df_source[col_b_ct_lsc] == selected_ro].copy()
+        if not df_sub.empty:
+            df_sub.insert(0, 'STT', range(1, len(df_sub) + 1))
+            cols_sub = ['STT', col_b_ct_mavt, col_b_mota, col_b_ct_loai, 'SL_DMS', 'Tiền xưởng (DMS)', 'Tien_DXBH', 'Tien_WCS', 'Nhãn Trạng Thái']
+            cfg_sub = {
+                "STT": st.column_config.NumberColumn("STT", width="small"),
+                col_b_ct_mavt: st.column_config.TextColumn("Mã sản phẩm", width="medium"),
+                col_b_mota: st.column_config.TextColumn("Tên công việc / Mô tả phụ tùng", width="large"),
+                col_b_ct_loai: st.column_config.TextColumn("Phân loại", width="small"),
+                "SL_DMS": st.column_config.NumberColumn("SL / Giờ", width="small"),
+                "Tiền xưởng (DMS)": st.column_config.NumberColumn("Tiền xưởng (no VAT)", format="%,d đ", width="medium"),
+                "Tien_DXBH": st.column_config.NumberColumn("Tiền đề xuất (no VAT)", format="%,d đ", width="medium"),
+                "Tien_WCS": st.column_config.NumberColumn("Tiền WCS duyệt", format="%,d đ", width="medium"),
+                "Nhãn Trạng Thái": st.column_config.TextColumn("Trạng thái", width="large")
+            }
+            cols_show_sub = [c for c in cols_sub if c in df_sub.columns]
+            st.dataframe(
+                df_sub[cols_show_sub].style.map(to_mau_trang_thai, subset=['Nhãn Trạng Thái'] if 'Nhãn Trạng Thái' in cols_show_sub else None),
+                use_container_width=True,
+                hide_index=True,
+                column_config=cfg_sub
+            )
+
+    # TAB 1: BỊ TRẢ VỀ (CÓ NÚT BẤM XEM CHI TIẾT TỪNG LỆNH)
     with t_tab_do:
         st.subheader("🔴 Danh Sách Lệnh Bị Nhà Máy Trả Về (Cần Bổ Sung Giải Trình)")
         df_do_only = df_b_filtered[df_b_filtered['Nhãn Trạng Thái'].apply(is_loi_can_sua_gap)].copy()
@@ -511,9 +537,21 @@ if df_bh_active is not None and not df_bh_active.empty:
             }
             st_styled = df_do_grouped.style.map(to_mau_trang_thai, subset=['Cấp độ trả về'])
             st.dataframe(st_styled, use_container_width=True, hide_index=True, column_config=cfg_do)
+
+            # NÚT BUNG CHI TIẾT TỪNG XE BỊ TRẢ VỀ
+            st.markdown("---")
+            sel_do_ro = st.selectbox(
+                "🔍 Nhấp chọn lệnh để xem chi tiết các công việc/phụ tùng bị trả về:",
+                options=["-- Chọn lệnh cần xem --"] + df_do_grouped[col_b_ct_lsc].tolist(),
+                key="sb_view_dt_do"
+            )
+            if sel_do_ro != "-- Chọn lệnh cần xem --":
+                st.info(f"📋 **Chi tiết danh mục công việc & phụ tùng bị trả về của lệnh {sel_do_ro}:**")
+                render_sub_table_chi_tiet(df_bh_m, sel_do_ro, "tbl_dt_do")
         else:
             st.success("🎉 Không có lệnh nào bị trả về trong kỳ lọc này.")
 
+    # TAB 2: CHƯA UPLOAD ĐỀ XUẤT (CÓ NÚT BẤM XEM CHI TIẾT TỪNG LỆNH)
     with t_tab_xanh:
         st.subheader("🔵 Danh Sách Xe Hoàn Thành Chưa Upload Đề Xuất (Sót Claim Toàn Bộ Xe)")
         df_xanh_only = df_b_filtered[df_b_filtered['Nhãn Trạng Thái'].apply(is_chua_up)].copy()
@@ -548,9 +586,21 @@ if df_bh_active is not None and not df_bh_active.empty:
             }
             st_styled_x = df_xanh_grouped.style.map(to_mau_trang_thai, subset=['Tình trạng'])
             st.dataframe(st_styled_x, use_container_width=True, hide_index=True, column_config=cfg_xanh)
+
+            # NÚT BUNG CHI TIẾT TỪNG XE CHƯA UPLOAD ĐỀ XUẤT
+            st.markdown("---")
+            sel_xanh_ro = st.selectbox(
+                "🔍 Nhấp chọn lệnh để xem chi tiết các công việc/phụ tùng chưa upload đề xuất:",
+                options=["-- Chọn lệnh cần xem --"] + df_xanh_grouped[col_b_ct_lsc].tolist(),
+                key="sb_view_dt_xanh"
+            )
+            if sel_xanh_ro != "-- Chọn lệnh cần xem --":
+                st.info(f"📋 **Chi tiết danh mục công việc & phụ tùng chưa upload của lệnh {sel_xanh_ro}:**")
+                render_sub_table_chi_tiet(df_bh_m, sel_xanh_ro, "tbl_dt_xanh")
         else:
             st.success("🎉 Toàn bộ xe đã được tạo đề xuất claim lên cổng VinFast!")
 
+    # TAB 3: TOÀN BỘ DANH SÁCH LSC (CÓ NÚT BẤM XEM CHI TIẾT)
     with t_b_ro:
         st.subheader(f"📋 Toàn Bộ Lệnh Bảo Hành ({sel_b_tt} | {sel_b_ky})")
         if not df_b_filtered.empty:
@@ -583,9 +633,20 @@ if df_bh_active is not None and not df_bh_active.empty:
             df_display_ro = df_b_ro_grouped[[c for c in cols_b_show_ro if c in df_b_ro_grouped.columns]].copy()
             st_styled_ro = df_display_ro.style.map(to_mau_trang_thai, subset=['Nhãn Trạng Thái'])
             st.dataframe(st_styled_ro, use_container_width=True, hide_index=True, column_config=cfg_bang_chuan)
+
+            st.markdown("---")
+            sel_all_ro = st.selectbox(
+                "🔍 Nhấp chọn lệnh để xem chi tiết danh mục phụ tùng & giờ công:",
+                options=["-- Chọn lệnh cần xem --"] + df_b_ro_grouped[col_b_ct_lsc].tolist(),
+                key="sb_view_dt_all"
+            )
+            if sel_all_ro != "-- Chọn lệnh cần xem --":
+                st.info(f"📋 **Chi tiết danh mục công việc & phụ tùng của lệnh {sel_all_ro}:**")
+                render_sub_table_chi_tiet(df_bh_m, sel_all_ro, "tbl_dt_all")
         else:
             st.info("Không có dữ liệu phù hợp với bộ lọc.")
 
+    # TAB 4: DUYỆT TÁCH ĐỢT
     with t_b_split:
         st.subheader("🔄 Theo Dõi Tiến Trình Duyệt Tách Đợt (Chờ Cấp 2 / Cấp 1)")
         ro_b_split = df_bh_m.groupby(['lsc_norm', col_b_ct_lsc]).agg({
@@ -631,6 +692,7 @@ if df_bh_active is not None and not df_bh_active.empty:
         else:
             st.success("Không có lệnh nào bị treo duyệt tách đợt.")
 
+    # TAB 5: CHI TIẾT TỪNG HẠNG MỤC
     with t_b_detail:
         st.subheader("🔎 Chi Tiết Hạng Mục Linh Kiện / Giờ Công")
         if not df_b_filtered.empty:
@@ -657,7 +719,7 @@ if df_bh_active is not None and not df_bh_active.empty:
         else:
             st.info("Không có dữ liệu chi tiết.")
 
-    # TAB 6: HIỂN THỊ CHI TIẾT TỪNG DÒNG CÔNG VIỆC BỊ BỎ QUA
+    # TAB 6: CHI TIẾT TỪNG DÒNG BỎ QUA
     with t_b_ignore:
         st.subheader("⚪ Chi Tiết Các Hạng Mục Bỏ Qua & Hãng Không Duyệt (Xưởng Tự Chịu)")
         
