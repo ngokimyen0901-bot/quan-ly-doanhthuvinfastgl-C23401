@@ -77,7 +77,7 @@ def xoa_sach_emoji(val):
     if pd.isna(val) or val is None:
         return ""
     s = str(val)
-    return re.sub(r'[🔴🔵🟢⚪⏳⌛🚨💡🛠️🧾📋🔄🔎📌🚗🚕❌⚠️✅]', '', s).strip()
+    return re.sub(r'[🔴🔵🟢⚪⏳⌛🚨💡🛠️🧾📋🔄🔎📌🚗🚕❌⚠️✅🔻]', '', s).strip()
 
 def to_mau_trang_thai(val):
     s = str(val).lower()
@@ -88,7 +88,7 @@ def to_mau_trang_thai(val):
     return ''
 
 def style_bac_thang(row):
-    """Tô màu bậc thang: Dòng lệnh chính tô màu vàng nhạt như Excel bạn vẽ, dòng con thụt lề"""
+    """Tô màu bậc thang: Dòng lệnh chính tô vàng nổi bật, dòng con giữ màu nhẹ"""
     cap = row.get('Cấp', '')
     if cap == 'CHA':
         return ['background-color: #fff9c4; font-weight: bold;' for _ in row]
@@ -213,7 +213,7 @@ if up_bh_ct and up_bh_dx:
             df_b_wcs_raw['SL_WCS'] = df_b_wcs_raw[col_wcs_sl].apply(clean_num_bh)
             df_b_wcs_raw['Tien_WCS'] = df_b_wcs_raw[col_wcs_amt].apply(clean_num_bh)
 
-            if col_wcs_bk in df_b_wcs_raw.columns and not df_b_wcs_raw[col_wcs_bk].dropna().empty:
+            if col_wcs_bk in df_b_wcs_raw.columns and not df_b_wcs_raw[col_b_wcs_bk].dropna().empty:
                 wcs_code_txt = str(df_b_wcs_raw[col_b_wcs_bk].dropna().iloc[0]).strip()
                 m_ky = re.search(r'WCS-(\d{2})-(\d{2})-(\d{4})', wcs_code_txt)
                 if m_ky:
@@ -469,7 +469,7 @@ if df_bh_active is not None and not df_bh_active.empty:
         "🧾 Hóa Đơn NM"
     ])
 
-    # HÀM TẠO BẢNG BẬC THANG DUY NHẤT (TREE-TABLE ĐÚNG CHUẨN EXCEL BẠN VẼ)
+    # HÀM TẠO BẢNG BẬC THANG DUY NHẤT (VĂN BẢN SẠCH 100%, KHÔNG KÝ TỰ LẠ, DỄ COPY)
     def render_tree_table(df_grouped, df_raw_all, empty_msg, tab_key):
         if df_grouped.empty:
             st.success(empty_msg)
@@ -502,16 +502,16 @@ if df_bh_active is not None and not df_bh_active.empty:
                 column_config=cfg_simple
             )
         else:
-            # Chế độ bậc thang (Tree-Table): 1 BẢNG DUY NHẤT có dòng Cha tô vàng và các dòng Con thụt lề
+            # Chế độ bậc thang (Tree-Table): Văn bản sạch hoàn toàn, không icon tam giác để dễ copy
             rows_tree = []
             stt_p = 1
             for _, r_p in df_grouped.iterrows():
                 lsc_val = r_p[col_b_ct_lsc]
-                # DÒNG CHA (LỆNH TỔNG) - TÔ MÀU VÀNG NỔI BẬT NHƯ EXCEL
+                # DÒNG CHA (LỆNH TỔNG): Để nguyên mã LSC sạch, không icon
                 rows_tree.append({
                     'STT': str(stt_p),
                     'Cấp': 'CHA',
-                    'Lệnh sửa chữa / Chi tiết': f"🔻 {lsc_val}",
+                    'Lệnh sửa chữa / Chi tiết': str(lsc_val),
                     'Biển số': r_p.get('Biển số', ''),
                     'Cố vấn dịch vụ': r_p.get('Cố vấn dịch vụ', ''),
                     'Mã / Tên công việc & Phụ tùng': f"[TỔNG CỘNG {r_p.get('Số mục', 1)} MỤC]",
@@ -521,7 +521,7 @@ if df_bh_active is not None and not df_bh_active.empty:
                     'Trạng thái': r_p.get('Lý do / Trạng thái', '')
                 })
 
-                # CÁC DÒNG CON THỤT LỀ BẬC THANG NGAY DƯỚI DÒNG CHA
+                # CÁC DÒNG CON: Để mã vật tư sạch, thụt lề bằng 4 dấu cách
                 df_sub = df_raw_all[df_raw_all[col_b_ct_lsc] == lsc_val].copy()
                 stt_c = 1
                 for _, r_c in df_sub.iterrows():
@@ -533,9 +533,9 @@ if df_bh_active is not None and not df_bh_active.empty:
                     tt_c = r_c.get('Nhãn Trạng Thái', '')
 
                     rows_tree.append({
-                        'STT': f"  ↳ {stt_p}.{stt_c}",
+                        'STT': f"{stt_p}.{stt_c}",
                         'Cấp': 'CON',
-                        'Lệnh sửa chữa / Chi tiết': f"      └─ {mavt_c}",
+                        'Lệnh sửa chữa / Chi tiết': f"    {mavt_c}",
                         'Biển số': '',
                         'Cố vấn dịch vụ': '',
                         'Mã / Tên công việc & Phụ tùng': mota_c,
@@ -569,7 +569,7 @@ if df_bh_active is not None and not df_bh_active.empty:
                 column_config=cfg_tree
             )
 
-    # TAB 1: BỊ TRẢ VỀ (BẢNG BẬC THANG ĐÚNG CHUẨN)
+    # TAB 1: BỊ TRẢ VỀ (BẢNG BẬC THANG SẠCH)
     with t_tab_do:
         st.subheader("🔴 Danh Sách Lệnh Bị Nhà Máy Trả Về (Bảng Phân Cấp Bậc Thang)")
         df_do_only = df_b_filtered[df_b_filtered['Nhãn Trạng Thái'].apply(is_loi_can_sua_gap)].copy()
@@ -593,7 +593,7 @@ if df_bh_active is not None and not df_bh_active.empty:
         else:
             st.success("🎉 Không có lệnh nào bị trả về trong kỳ lọc này.")
 
-    # TAB 2: CHƯA UPLOAD ĐỀ XUẤT (BẢNG BẬC THANG ĐÚNG CHUẨN)
+    # TAB 2: CHƯA UPLOAD ĐỀ XUẤT (BẢNG BẬC THANG SẠCH)
     with t_tab_xanh:
         st.subheader("🔵 Danh Sách Xe Hoàn Thành Chưa Upload Đề Xuất (Bảng Phân Cấp Bậc Thang)")
         df_xanh_only = df_b_filtered[df_b_filtered['Nhãn Trạng Thái'].apply(is_chua_up)].copy()
