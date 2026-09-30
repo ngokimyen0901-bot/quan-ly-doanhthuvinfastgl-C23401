@@ -6,7 +6,6 @@ import re
 
 st.set_page_config(page_title="Báo Cáo Doanh Thu Dịch Vụ VinFast", page_icon="📊", layout="wide")
 
-# Dữ liệu chuẩn 100% từng đồng của 7 tháng thực tế (13.85 tỷ)
 RAW_ACTUAL_DATA = [
     {
         "id": "m1", "name": "Tháng 1",
@@ -59,7 +58,6 @@ RAW_ACTUAL_DATA = [
     }
 ]
 
-# Hàm tự động đọc Google Sheet tab Data_doanhthu
 def fetch_from_gsheet(url):
     try:
         match_id = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
@@ -95,10 +93,9 @@ def fetch_from_gsheet(url):
         pass
     return None
 
-# Sidebar quản lý đồng bộ
 with st.sidebar:
     st.header("🔗 Nguồn Dữ Liệu Google Sheet")
-    st.info("💡 Bạn chỉ cần dán link Google Sheet một lần, hệ thống sẽ tự động lưu và kéo số liệu mỗi khi reboot.")
+    st.info("💡 Dán link Google Sheet một lần, hệ thống sẽ tự động lưu và kéo số liệu mỗi khi reboot.")
     saved_url = st.session_state.get("gsheet_url_saved", "")
     gsheet_input = st.text_input("Link Google Sheet (tab Data_doanhthu):", value=saved_url, placeholder="https://docs.google.com/spreadsheets/d/...")
     if gsheet_input:
@@ -131,12 +128,12 @@ HTML_CONTENT = f"""
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         body {{ font-family: 'Inter', sans-serif; background-color: #f8fafc; margin: 0; padding: 12px; }}
-        .tab-btn.active {{ background-color: #2563eb; color: #ffffff; border-color: #2563eb; font-weight: 600; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2); }}
-        .month-pill.active {{ background-color: #2563eb; color: #ffffff; font-weight: 600; }}
-        .chart-toggle-btn.active {{ background-color: #ffffff; font-weight: 700; color: #1e293b; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
+        .tab-btn.active {{ background-color: #2563eb; color: #ffffff; border-color: #2563eb; font-weight: 700; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.25); }}
+        .month-pill.active {{ background-color: #2563eb; color: #ffffff; font-weight: 700; }}
+        .chart-toggle-btn.active {{ background-color: #ffffff; font-weight: 800; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }}
         input::-webkit-outer-spin-button, input::-webkit-inner-spin-button {{ -webkit-appearance: none; margin: 0; }}
     </style>
 </head>
@@ -147,105 +144,105 @@ HTML_CONTENT = f"""
         <!-- HEADER -->
         <div class="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between bg-white">
             <div class="flex items-center space-x-3">
-                <div class="p-2 bg-blue-50 text-blue-600 rounded-xl text-2xl">📊</div>
+                <div class="p-2.5 bg-blue-50 text-blue-600 rounded-xl text-3xl">📊</div>
                 <div>
-                    <div class="flex items-center space-x-2">
-                        <h1 class="text-lg font-bold text-slate-900">Báo Cáo Phân Tích Doanh Thu Xưởng Dịch Vụ</h1>
-                        <span id="badgeMonthCount" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">Số Liệu Thực Tế 7 Tháng</span>
+                    <div class="flex items-center space-x-3">
+                        <h1 class="text-xl font-extrabold text-slate-900 tracking-tight">Báo Cáo Phân Tích Doanh Thu Xưởng Dịch Vụ</h1>
+                        <span id="badgeMonthCount" class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">Số Liệu Thực Tế 7 Tháng</span>
                     </div>
-                    <p class="text-xs text-slate-500 mt-0.5">Bảo dưỡng định kỳ, Sửa chữa chung, Đồng Sơn, Bảo hành & Cứu hộ giao thông</p>
+                    <p class="text-xs font-medium text-slate-500 mt-1">Bảo dưỡng định kỳ, Sửa chữa chung, Đồng Sơn, Bảo hành & Cứu hộ giao thông</p>
                 </div>
             </div>
             <div class="flex items-center space-x-3 mt-3 sm:mt-0">
-                <button onclick="openModal()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-semibold rounded-lg flex items-center shadow-md transition">
-                    <span class="mr-1.5 text-sm font-bold">+</span> + Tháng thực tế
+                <button onclick="openModal()" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl flex items-center shadow-md transition">
+                    <span class="mr-1.5 text-base font-black">+</span> + Tháng thực tế
                 </button>
-                <button onclick="exportToCSV()" class="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg flex items-center shadow-sm">
+                <button onclick="exportToCSV()" class="px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-bold rounded-xl flex items-center shadow-sm">
                     <span class="mr-1.5">📥</span> Xuất Excel
                 </button>
             </div>
         </div>
 
         <!-- THANH TAB 4 MỤC -->
-        <div class="px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-            <div class="flex flex-wrap items-center gap-2">
-                <button id="btn-tab-1" onclick="switchTab(1)" class="tab-btn active px-4 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-700 transition">
+        <div class="px-6 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2.5">
+                <button id="btn-tab-1" onclick="switchTab(1)" class="tab-btn active px-4 py-2.5 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 transition">
                     📊 1. Số Liệu Thực Tế (7 Tháng)
                 </button>
-                <button id="btn-tab-2" onclick="switchTab(2)" class="tab-btn px-4 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-700 transition">
+                <button id="btn-tab-2" onclick="switchTab(2)" class="tab-btn px-4 py-2.5 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 transition">
                     📅 2. Biểu Đồ Từng Tháng (Thực Tế)
                 </button>
-                <button id="btn-tab-3" onclick="switchTab(3)" class="tab-btn px-4 py-2 text-xs rounded-xl border border-purple-200 bg-purple-50 text-purple-700 transition">
-                    🔮 3. Kế Hoạch & Dự Báo (T8 - T12) <span class="ml-1 text-[10px] bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded">Tab Riêng</span>
+                <button id="btn-tab-3" onclick="switchTab(3)" class="tab-btn px-4 py-2.5 text-xs font-bold rounded-xl border border-purple-200 bg-purple-50 text-purple-700 transition">
+                    🔮 3. Kế Hoạch & Dự Báo (T8 - T12) <span class="ml-1 text-[11px] bg-purple-200 text-purple-800 px-2 py-0.5 rounded font-extrabold">Tab Riêng</span>
                 </button>
-                <button id="btn-tab-4" onclick="switchTab(4)" class="tab-btn px-4 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-700 transition">
+                <button id="btn-tab-4" onclick="switchTab(4)" class="tab-btn px-4 py-2.5 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 transition">
                     📑 4. Bảng Tính Gốc (Excel)
                 </button>
             </div>
-            <div class="text-xs font-bold text-slate-600">
-                Tổng Thực Tế: <span id="topTotalActual" class="text-emerald-600 text-sm font-extrabold">13.85 tỷ</span>
+            <div class="text-sm font-bold text-slate-700">
+                Tổng Thực Tế: <span id="topTotalActual" class="text-emerald-600 text-base font-black">13.85 tỷ</span>
             </div>
         </div>
 
-        <!-- 4 THẺ CHỈ SỐ KPI CHUẨN XÁC KÈM MoM -->
+        <!-- 4 THẺ CHỈ SỐ KPI CHUẨN XÁC KÈM MoM (CHỮ VÀ SỐ TO RÕ) -->
         <div class="p-6 bg-slate-50/50">
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 
-                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm relative">
                     <div class="flex justify-between items-start">
-                        <span class="text-xs font-semibold text-slate-500">Doanh Thu Thực Tế (YTD)</span>
-                        <span class="p-1 text-blue-600 bg-blue-50 rounded-lg text-xs">📈</span>
+                        <span class="text-xs font-bold text-slate-500 uppercase tracking-wide">Doanh Thu Thực Tế (YTD)</span>
+                        <span class="p-1.5 text-blue-600 bg-blue-50 rounded-xl text-base">📈</span>
                     </div>
-                    <div class="mt-2 flex items-baseline space-x-1">
-                        <span id="kpiYTD" class="text-2xl font-black text-slate-900 tracking-tight">13.85</span>
-                        <span class="text-sm font-bold text-slate-700">tỷ</span>
+                    <div class="mt-2.5 flex items-baseline space-x-1.5">
+                        <span id="kpiYTD" class="text-3xl font-black text-slate-900 tracking-tight">13.85</span>
+                        <span class="text-base font-extrabold text-slate-700">tỷ</span>
                     </div>
-                    <div class="mt-2 flex justify-between items-center text-xs text-emerald-600 font-medium">
+                    <div class="mt-2 flex justify-between items-center text-xs text-emerald-600 font-bold">
                         <span id="kpiAvgMonth">TB: 1.98 tỷ / tháng</span>
-                        <span id="kpiMonthCount" class="text-slate-400">7 tháng</span>
+                        <span id="kpiMonthCount" class="text-slate-400 font-semibold">7 tháng</span>
                     </div>
                 </div>
 
-                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm relative">
                     <div class="flex justify-between items-start">
-                        <span class="text-xs font-semibold text-slate-500">Tháng Đỉnh Doanh Thu</span>
-                        <span class="p-1 text-amber-500 bg-amber-50 rounded-lg text-xs">🏆</span>
+                        <span class="text-xs font-bold text-slate-500 uppercase tracking-wide">Tháng Đỉnh Doanh Thu</span>
+                        <span class="p-1.5 text-amber-500 bg-amber-50 rounded-xl text-base">🏆</span>
                     </div>
-                    <div class="mt-2 flex items-baseline space-x-2">
-                        <span id="kpiPeakMonth" class="text-2xl font-black text-slate-900 tracking-tight">Tháng 7</span>
+                    <div class="mt-2.5 flex items-baseline space-x-2">
+                        <span id="kpiPeakMonth" class="text-3xl font-black text-slate-900 tracking-tight">Tháng 7</span>
                     </div>
                     <div class="mt-2 flex justify-between items-center text-xs">
-                        <span id="kpiPeakRev" class="text-amber-700 font-bold">2.73 tỷ</span>
-                        <span id="kpiPeakMoM" class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-bold">+34.1% MoM</span>
+                        <span id="kpiPeakRev" class="text-amber-700 font-extrabold text-sm">2.73 tỷ</span>
+                        <span id="kpiPeakMoM" class="px-2.5 py-1 bg-amber-100 text-amber-900 rounded-lg font-black text-xs">+34.1% MoM</span>
                     </div>
                 </div>
 
-                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm relative">
                     <div class="flex justify-between items-start">
-                        <span class="text-xs font-semibold text-slate-500">Tỷ Lệ Phụ Tùng / Công</span>
-                        <span class="p-1 text-purple-600 bg-purple-50 rounded-lg text-xs">🔥</span>
+                        <span class="text-xs font-bold text-slate-500 uppercase tracking-wide">Tỷ Lệ Phụ Tùng / Công</span>
+                        <span class="p-1.5 text-purple-600 bg-purple-50 rounded-xl text-base">🔥</span>
                     </div>
-                    <div class="mt-2 flex items-baseline space-x-1">
-                        <span id="kpiRatio" class="text-2xl font-black text-slate-900 tracking-tight">2.59x</span>
+                    <div class="mt-2.5 flex items-baseline space-x-1">
+                        <span id="kpiRatio" class="text-3xl font-black text-slate-900 tracking-tight">2.59x</span>
                     </div>
-                    <div class="mt-2 flex justify-between items-center text-xs">
-                        <span id="kpiPtRatio" class="text-emerald-600 font-medium">PT: 71.3%</span>
-                        <span id="kpiLaborRatio" class="text-purple-600 font-medium">Công: 27.5%</span>
+                    <div class="mt-2 flex justify-between items-center text-xs font-bold">
+                        <span id="kpiPtRatio" class="text-emerald-600">PT: 71.3%</span>
+                        <span id="kpiLaborRatio" class="text-purple-600">Công: 27.5%</span>
                     </div>
                 </div>
 
-                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative">
+                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm relative">
                     <div class="flex justify-between items-start">
-                        <span class="text-xs font-semibold text-slate-500">Bảo Hành Nhà Máy (W)</span>
-                        <span class="p-1 text-emerald-600 bg-emerald-50 rounded-lg text-xs">🛡️</span>
+                        <span class="text-xs font-bold text-slate-500 uppercase tracking-wide">Bảo Hành Nhà Máy (W)</span>
+                        <span class="p-1.5 text-emerald-600 bg-emerald-50 rounded-xl text-base">🛡️</span>
                     </div>
-                    <div class="mt-2 flex items-baseline space-x-1">
-                        <span id="kpiBH" class="text-2xl font-black text-slate-900 tracking-tight">5.05</span>
-                        <span class="text-sm font-bold text-slate-700">tỷ</span>
+                    <div class="mt-2.5 flex items-baseline space-x-1.5">
+                        <span id="kpiBH" class="text-3xl font-black text-slate-900 tracking-tight">5.05</span>
+                        <span class="text-base font-extrabold text-slate-700">tỷ</span>
                     </div>
                     <div class="mt-2 flex justify-between items-center text-xs">
-                        <span id="kpiBHRate" class="text-emerald-700 font-medium">Chiếm 36.5% toàn xưởng</span>
-                        <span class="text-emerald-600 font-bold">T7 tăng vọt</span>
+                        <span id="kpiBHRate" class="text-emerald-700 font-bold">Chiếm 36.5% toàn xưởng</span>
+                        <span class="text-emerald-600 font-extrabold">T7 tăng vọt</span>
                     </div>
                 </div>
 
@@ -255,190 +252,183 @@ HTML_CONTENT = f"""
         <!-- NỘI DUNG TỪNG TAB -->
         <div class="p-6">
             
-            <!-- TAB 1: SỐ LIỆU THỰC TẾ CÓ 3 NÚT CHUYỂN ĐỔI CHẾ ĐỘ BIỂU ĐỒ (ẢNH 1) -->
+            <!-- TAB 1: SỐ LIỆU THỰC TẾ -->
             <div id="content-tab-1">
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div class="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                    <div class="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                            <h2 id="chartTitleActual" class="text-sm font-bold text-slate-800">Biến Động Doanh Thu Thực Tế (Tháng 1 Đến Tháng 7)</h2>
-                            <!-- 3 NÚT CHUYỂN CHẾ ĐỘ BIỂU ĐỒ -->
-                            <div class="flex items-center p-0.5 bg-slate-100 rounded-lg text-xs border border-slate-200">
-                                <button id="btnModePillars" onclick="changeChartMode('pillars')" class="chart-toggle-btn active px-3 py-1 rounded-md text-slate-700 transition">
+                            <h2 id="chartTitleActual" class="text-base font-extrabold text-slate-900">Biến Động Doanh Thu Thực Tế (Tháng 1 Đến Tháng 7)</h2>
+                            <div class="flex items-center p-1 bg-slate-100 rounded-xl text-xs font-bold border border-slate-200">
+                                <button id="btnModePillars" onclick="changeChartMode('pillars')" class="chart-toggle-btn active px-3.5 py-1.5 rounded-lg text-slate-700 transition">
                                     4 Mảng Dịch Vụ
                                 </button>
-                                <button id="btnModeLaborParts" onclick="changeChartMode('labor-parts')" class="chart-toggle-btn px-3 py-1 rounded-md text-slate-600 transition">
+                                <button id="btnModeLaborParts" onclick="changeChartMode('labor-parts')" class="chart-toggle-btn px-3.5 py-1.5 rounded-lg text-slate-600 transition">
                                     Công vs Phụ Tùng
                                 </button>
-                                <button id="btnModeLine" onclick="changeChartMode('line')" class="chart-toggle-btn px-3 py-1 rounded-md text-slate-600 transition">
+                                <button id="btnModeLine" onclick="changeChartMode('line')" class="chart-toggle-btn px-3.5 py-1.5 rounded-lg text-slate-600 transition">
                                     Đường Tổng Thu
                                 </button>
                             </div>
                         </div>
                         <div class="h-80 w-full"><canvas id="mainChartTab1"></canvas></div>
-                        <div id="legendModePillars" class="flex flex-wrap justify-center gap-4 mt-4 text-xs font-medium">
-                            <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-blue-600"></span><span>BD & SCC</span></div>
-                            <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-amber-500"></span><span>Đồng Sơn</span></div>
-                            <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-emerald-500"></span><span>Bảo Hành Chính Hãng</span></div>
-                            <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-purple-600"></span><span>Cứu Hộ Giao Thông</span></div>
-                        </div>
+                        <div id="legendModePillars" class="flex flex-wrap justify-center gap-5 mt-4 text-xs font-bold text-slate-700"></div>
                     </div>
 
-                    <!-- DONUT LŨY KẾ 4 MẢNG (HIỂN THỊ ĐẦY ĐỦ TIỀN VÀ %) -->
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                        <h2 class="text-sm font-bold text-slate-800 mb-2">Cơ Cấu Thực Tế 4 Mảng Lũy Kế</h2>
+                    <!-- DONUT LŨY KẾ 4 MẢNG (CHỮ TO RÕ) -->
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                        <h2 class="text-base font-extrabold text-slate-900 mb-2">Cơ Cấu Thực Tế 4 Mảng Lũy Kế</h2>
                         <div class="relative flex items-center justify-center h-52">
                             <canvas id="donutChart"></canvas>
                             <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                                <span class="text-xs text-slate-400 font-medium">Thực Tế</span>
-                                <span id="donutCenterTotal" class="text-lg font-black text-slate-900">13.85 tỷ</span>
+                                <span class="text-xs text-slate-400 font-bold uppercase">Thực Tế</span>
+                                <span id="donutCenterTotal" class="text-xl font-black text-slate-900">13.85 tỷ</span>
                             </div>
                         </div>
-                        <div id="donutLegend" class="space-y-2 mt-4 text-xs"></div>
+                        <div id="donutLegend" class="space-y-2.5 mt-4 text-xs"></div>
                     </div>
                 </div>
             </div>
 
-            <!-- TAB 2: BIỂU ĐỒ TỪNG THÁNG CÓ CỘT ĐÔI + BẢNG XẾP HẠNG 9 HẠNG MỤC (ẢNH 3, 4, 5) -->
+            <!-- TAB 2: BIỂU ĐỒ TỪNG THÁNG CÓ BẢNG XẾP HẠNG PHÓNG TO (ẢNH 1 CỦA BẠN) -->
             <div id="content-tab-2" class="hidden space-y-6">
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                     <div class="flex flex-wrap items-center justify-between gap-4">
                         <div>
-                            <div class="flex items-center space-x-2">
-                                <h2 id="monthTitle" class="text-base font-bold text-slate-900">Biểu Đồ Phân Tích Tháng 7 (Thực Tế)</h2>
-                                <span id="monthBadge" class="px-2 py-0.5 text-xs font-semibold rounded bg-amber-100 text-amber-800">Tháng Đỉnh Doanh Thu</span>
+                            <div class="flex items-center space-x-3">
+                                <h2 id="monthTitle" class="text-lg font-black text-slate-900">Biểu Đồ Phân Tích Tháng 7 (Thực Tế)</h2>
+                                <span id="monthBadge" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-100 text-amber-900 border border-amber-300">Tháng Đỉnh Doanh Thu</span>
                             </div>
-                            <p class="text-xs text-slate-500 mt-1">Tổng doanh thu dịch vụ & cứu hộ: <span id="monthTotalText" class="font-bold text-slate-800">2.727.336.830 đ</span></p>
+                            <p class="text-xs font-medium text-slate-500 mt-1">Tổng doanh thu dịch vụ & cứu hộ: <span id="monthTotalText" class="font-extrabold text-slate-900 text-sm">2.727.336.830 đ</span></p>
                         </div>
-                        <div id="monthPillContainer" class="flex flex-wrap gap-1.5 bg-slate-100 p-1.5 rounded-xl border border-slate-200"></div>
+                        <div id="monthPillContainer" class="flex flex-wrap gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200"></div>
                     </div>
 
-                    <!-- 4 THẺ CHI TIẾT THÁNG -->
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
-                        <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                            <div class="text-[11px] text-slate-500 font-semibold">Tổng Thu Tháng</div>
-                            <div id="mCardTotal" class="text-lg font-bold text-blue-600 mt-1">2.73 tỷ</div>
-                            <div id="mCardSub" class="text-[10px] text-slate-400">2.727.336.830 đ</div>
+                    <!-- 4 THẺ CHI TIẾT THÁNG (TO RÕ) -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                        <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                            <div class="text-xs text-slate-500 font-bold uppercase">Tổng Thu Tháng</div>
+                            <div id="mCardTotal" class="text-2xl font-black text-blue-600 mt-1">2.73 tỷ</div>
+                            <div id="mCardSub" class="text-xs text-slate-500 mt-0.5 font-semibold">2.727.336.830 đ</div>
                         </div>
-                        <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                            <div class="text-[11px] text-slate-500 font-semibold">So Với Tháng Trước (MoM)</div>
-                            <div id="mCardMoM" class="text-lg font-bold text-emerald-600 mt-1">+34.1%</div>
-                            <div id="mCardPrev" class="text-[10px] text-slate-400">Tháng trước: 2.03 tỷ</div>
+                        <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                            <div class="text-xs text-slate-500 font-bold uppercase">So Với Tháng Trước (MoM)</div>
+                            <div id="mCardMoM" class="text-2xl font-black text-emerald-600 mt-1">+34.1%</div>
+                            <div id="mCardPrev" class="text-xs text-slate-500 mt-0.5 font-semibold">Tháng trước: 2.03 tỷ</div>
                         </div>
-                        <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                            <div class="text-[11px] text-slate-500 font-semibold">Tỷ Lệ PT / Công Tháng Này</div>
-                            <div id="mCardRatio" class="text-lg font-bold text-purple-600 mt-1">2.35x</div>
-                            <div id="mCardRatioSub" class="text-[10px] text-slate-400">Công: 802 tr | PT: 1.89 tỷ</div>
+                        <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                            <div class="text-xs text-slate-500 font-bold uppercase">Tỷ Lệ PT / Công Tháng Này</div>
+                            <div id="mCardRatio" class="text-2xl font-black text-purple-600 mt-1">2.35x</div>
+                            <div id="mCardRatioSub" class="text-xs text-slate-500 mt-0.5 font-semibold">Công: 802 tr | PT: 1.89 tỷ</div>
                         </div>
-                        <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                            <div class="text-[11px] text-slate-500 font-semibold">Cứu Hộ Giao Thông</div>
-                            <div id="mCardCH" class="text-lg font-bold text-indigo-600 mt-1">38.3 tr</div>
-                            <div id="mCardCHSub" class="text-[10px] text-slate-400">Chiếm 1.4%</div>
+                        <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                            <div class="text-xs text-slate-500 font-bold uppercase">Cứu Hộ Giao Thông</div>
+                            <div id="mCardCH" class="text-2xl font-black text-indigo-600 mt-1">38.3 tr</div>
+                            <div id="mCardCHSub" class="text-xs text-slate-500 mt-0.5 font-semibold">Chiếm 1.4%</div>
                         </div>
                     </div>
 
-                    <!-- 2 BIỂU ĐỒ CHI TIẾT (CỘT ĐÔI CÔNG/PHỤ TÙNG vs TỔNG CẢ MẢNG - ẢNH 3) -->
+                    <!-- 2 BIỂU ĐỒ CHI TIẾT -->
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
                         <div class="lg:col-span-2">
                             <div class="flex justify-between items-center mb-2">
-                                <div class="text-xs font-bold text-slate-700">Doanh Thu 4 Trụ Cột Trong Tháng (Tách Tiền Công vs Phụ Tùng)</div>
-                                <div class="text-[11px] text-slate-400 font-mono">Đơn vị: VNĐ</div>
+                                <div class="text-sm font-extrabold text-slate-800">Doanh Thu 4 Trụ Cột Trong Tháng (Tách Tiền Công vs Phụ Tùng)</div>
+                                <div class="text-xs text-slate-400 font-bold font-mono">Đơn vị: VNĐ</div>
                             </div>
                             <div class="h-64"><canvas id="monthDoubleColChart"></canvas></div>
-                            <div class="flex justify-center items-center gap-5 mt-3 text-xs">
-                                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-[#ec4899]"></span><span>Phụ Tùng</span></div>
-                                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-[#3b82f6]"></span><span>Tiền Công</span></div>
-                                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-[#94a3b8]"></span><span>Tổng Cả Mảng</span></div>
+                            <div class="flex justify-center items-center gap-6 mt-3 text-xs font-bold">
+                                <div class="flex items-center gap-2"><span class="w-3.5 h-3.5 rounded bg-[#ec4899]"></span><span>Phụ Tùng</span></div>
+                                <div class="flex items-center gap-2"><span class="w-3.5 h-3.5 rounded bg-[#3b82f6]"></span><span>Tiền Công</span></div>
+                                <div class="flex items-center gap-2"><span class="w-3.5 h-3.5 rounded bg-[#94a3b8]"></span><span>Tổng Cả Mảng</span></div>
                             </div>
                         </div>
                         <div>
-                            <div class="text-xs font-bold text-slate-700 mb-2">Tỷ Trọng Doanh Thu Tháng Này</div>
+                            <div class="text-sm font-extrabold text-slate-800 mb-2">Tỷ Trọng Doanh Thu Tháng Này</div>
                             <div class="h-44 flex items-center justify-center relative">
                                 <canvas id="monthDonutChart"></canvas>
                                 <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                                    <span id="donutMonthCenterName" class="text-[10px] text-slate-400">Tháng 7</span>
-                                    <span id="donutMonthCenterTotal" class="text-xs font-bold text-slate-900">2.73 tỷ</span>
+                                    <span id="donutMonthCenterName" class="text-xs text-slate-400 font-bold">Tháng 7</span>
+                                    <span id="donutMonthCenterTotal" class="text-sm font-black text-slate-900">2.73 tỷ</span>
                                 </div>
                             </div>
-                            <!-- DANH MỤC TỶ TRỌNG CÓ ĐẦY ĐỦ TIỀN VÀ % (ẢNH 5) -->
-                            <div id="monthDonutList" class="space-y-1.5 pt-3 border-t border-slate-100 text-xs mt-2"></div>
+                            <div id="monthDonutList" class="space-y-2 pt-3 border-t border-slate-100 text-xs mt-2"></div>
                         </div>
                     </div>
                 </div>
 
-                <!-- BẢNG XẾP HẠNG 9 HẠNG MỤC THỰC TẾ TRONG THÁNG TỪ CAO XUỐNG THẤP (ẢNH 4) -->
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                    <h3 id="rankTitle" class="text-xs font-bold text-slate-800 mb-3">
+                <!-- BẢNG XẾP HẠNG 9 HẠNG MỤC PHÓNG TO RÕ RÀNG (ẢNH 1 CỦA BẠN) -->
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <h3 id="rankTitle" class="text-sm font-black text-slate-900 uppercase tracking-wide mb-4">
                         Bảng Xếp Hạng Hạng Mục Thực Tế Trong Tháng 7 (Từ Cao Xuống Thấp)
                     </h3>
-                    <div id="rankGridContainer" class="grid grid-cols-1 sm:grid-cols-3 gap-3"></div>
+                    <div id="rankGridContainer" class="grid grid-cols-1 sm:grid-cols-3 gap-3.5"></div>
                 </div>
             </div>
 
-            <!-- TAB 3: KẾ HOẠCH DỰ BÁO T8-T12 -->
+            <!-- TAB 3: KẾ HOẠCH DỰ BÁO -->
             <div id="content-tab-3" class="hidden">
                 <div class="bg-purple-50 p-4 rounded-xl border border-purple-200 mb-4 flex items-center justify-between">
                     <div class="flex items-center space-x-2">
-                        <span class="text-purple-600 text-lg">🎯</span>
-                        <span class="text-xs font-bold text-purple-900">Mục Tiêu Kế Hoạch 5 Tháng Cuối Năm: 11.65 tỷ (Tổng cả năm ước đạt ~25.5 tỷ)</span>
+                        <span class="text-purple-600 text-xl">🎯</span>
+                        <span class="text-sm font-bold text-purple-900">Mục Tiêu Kế Hoạch 5 Tháng Cuối Năm: 11.65 tỷ (Tổng cả năm ước đạt ~25.5 tỷ)</span>
                     </div>
                 </div>
-                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
-                    <h3 class="text-sm font-bold text-slate-800 mb-3">Dự Phóng Doanh Thu Các Tháng Tiếp Theo</h3>
-                    <table class="w-full text-xs text-left border-collapse">
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+                    <h3 class="text-base font-extrabold text-slate-900 mb-3">Dự Phóng Doanh Thu Các Tháng Tiếp Theo</h3>
+                    <table class="w-full text-sm text-left border-collapse">
                         <thead>
-                            <tr class="bg-slate-50 text-slate-600 border-b border-slate-200">
-                                <th class="p-3 font-semibold">Tháng Dự Phóng</th>
-                                <th class="p-3 font-semibold text-right">Bảo Dưỡng & SCC (Tr.đ)</th>
-                                <th class="p-3 font-semibold text-right">Đồng Sơn (Tr.đ)</th>
-                                <th class="p-3 font-semibold text-right">Bảo Hành OEM (Tr.đ)</th>
-                                <th class="p-3 font-semibold text-right">Cứu Hộ (Tr.đ)</th>
-                                <th class="p-3 font-semibold text-right text-purple-700">Tổng Dự Kiến (Tr.đ)</th>
+                            <tr class="bg-slate-50 text-slate-700 border-b border-slate-200 font-bold">
+                                <th class="p-3">Tháng Dự Phóng</th>
+                                <th class="p-3 text-right">Bảo Dưỡng & SCC (Tr.đ)</th>
+                                <th class="p-3 text-right">Đồng Sơn (Tr.đ)</th>
+                                <th class="p-3 text-right">Bảo Hành OEM (Tr.đ)</th>
+                                <th class="p-3 text-right">Cứu Hộ (Tr.đ)</th>
+                                <th class="p-3 text-right text-purple-700 font-extrabold">Tổng Dự Kiến (Tr.đ)</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            <tr><td class="p-3 font-medium">Tháng 8 (Kế hoạch)</td><td class="p-3 text-right">720.0</td><td class="p-3 text-right">705.0</td><td class="p-3 text-right">680.0</td><td class="p-3 text-right">25.0</td><td class="p-3 text-right font-bold text-purple-600">2,130.0</td></tr>
-                            <tr><td class="p-3 font-medium">Tháng 9 (Kế hoạch)</td><td class="p-3 text-right">750.0</td><td class="p-3 text-right">730.0</td><td class="p-3 text-right">720.0</td><td class="p-3 text-right">25.0</td><td class="p-3 text-right font-bold text-purple-600">2,225.0</td></tr>
-                            <tr><td class="p-3 font-medium">Tháng 10 (Kế hoạch)</td><td class="p-3 text-right">780.0</td><td class="p-3 text-right">760.0</td><td class="p-3 text-right">750.0</td><td class="p-3 text-right">30.0</td><td class="p-3 text-right font-bold text-purple-600">2,320.0</td></tr>
-                            <tr><td class="p-3 font-medium">Tháng 11 (Kế hoạch)</td><td class="p-3 text-right">820.0</td><td class="p-3 text-right">790.0</td><td class="p-3 text-right">780.0</td><td class="p-3 text-right">30.0</td><td class="p-3 text-right font-bold text-purple-600">2,420.0</td></tr>
-                            <tr><td class="p-3 font-medium">Tháng 12 (Kế hoạch)</td><td class="p-3 text-right">860.0</td><td class="p-3 text-right">830.0</td><td class="p-3 text-right">825.0</td><td class="p-3 text-right">35.0</td><td class="p-3 text-right font-bold text-purple-600">2,550.0</td></tr>
+                        <tbody class="divide-y divide-slate-100 font-semibold text-slate-800">
+                            <tr><td class="p-3">Tháng 8 (Kế hoạch)</td><td class="p-3 text-right">720.0</td><td class="p-3 text-right">705.0</td><td class="p-3 text-right">680.0</td><td class="p-3 text-right">25.0</td><td class="p-3 text-right font-black text-purple-600">2,130.0</td></tr>
+                            <tr><td class="p-3">Tháng 9 (Kế hoạch)</td><td class="p-3 text-right">750.0</td><td class="p-3 text-right">730.0</td><td class="p-3 text-right">720.0</td><td class="p-3 text-right">25.0</td><td class="p-3 text-right font-black text-purple-600">2,225.0</td></tr>
+                            <tr><td class="p-3">Tháng 10 (Kế hoạch)</td><td class="p-3 text-right">780.0</td><td class="p-3 text-right">760.0</td><td class="p-3 text-right">750.0</td><td class="p-3 text-right">30.0</td><td class="p-3 text-right font-black text-purple-600">2,320.0</td></tr>
+                            <tr><td class="p-3">Tháng 11 (Kế hoạch)</td><td class="p-3 text-right">820.0</td><td class="p-3 text-right">790.0</td><td class="p-3 text-right">780.0</td><td class="p-3 text-right">30.0</td><td class="p-3 text-right font-black text-purple-600">2,420.0</td></tr>
+                            <tr><td class="p-3">Tháng 12 (Kế hoạch)</td><td class="p-3 text-right">860.0</td><td class="p-3 text-right">830.0</td><td class="p-3 text-right">825.0</td><td class="p-3 text-right">35.0</td><td class="p-3 text-right font-black text-purple-600">2,550.0</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            <!-- TAB 4: BẢNG TÍNH GỐC EXCEL ĐẦY ĐỦ 13 CỘT (ẢNH 7) -->
+            <!-- TAB 4: BẢNG TÍNH GỐC EXCEL 13 CỘT (PHÓNG TO RÕ RÀNG NHƯ ẢNH 2 CỦA BẠN) -->
             <div id="content-tab-4" class="hidden">
-                <div class="bg-white border border-slate-300 rounded-xl shadow-sm overflow-hidden">
-                    <div class="p-3.5 bg-slate-100 border-b border-slate-300 flex items-center justify-between text-xs">
-                        <span class="font-bold text-slate-800">
+                <div class="bg-white border border-slate-300 rounded-2xl shadow-sm overflow-hidden">
+                    <div class="p-4 bg-slate-100 border-b border-slate-300 flex items-center justify-between">
+                        <span class="text-sm font-black text-slate-900 uppercase">
                             Bảng Tính Doanh Thu Thực Tế (Chỉ gồm các tháng phát sinh thực tế)
                         </span>
-                        <span class="text-slate-500 font-mono">Đơn vị: VNĐ</span>
+                        <span class="text-xs text-slate-500 font-bold font-mono">Đơn vị: VNĐ</span>
                     </div>
 
                     <div class="overflow-x-auto">
-                        <table class="w-full border-collapse text-[11px] text-slate-800">
+                        <table class="w-full border-collapse text-xs md:text-sm text-slate-900">
                             <thead>
                                 <tr class="bg-slate-200 border-b border-slate-300 divide-x divide-slate-300 text-center font-bold">
-                                    <th class="py-2.5 px-3 text-left bg-slate-300 sticky left-0 z-10 w-24">Tháng</th>
-                                    <th class="py-2 px-2 bg-emerald-100 text-emerald-950 min-w-[95px]">Công BD</th>
-                                    <th class="py-2 px-2 min-w-[95px]">Công SCC</th>
-                                    <th class="py-2 px-2 min-w-[105px]">PT BD+SCC</th>
-                                    <th class="py-2 px-2 min-w-[90px]">Công Gò</th>
-                                    <th class="py-2 px-2 min-w-[95px]">Công Sơn</th>
-                                    <th class="py-2 px-2 bg-blue-100 text-blue-950 min-w-[105px]">Tổng Công ĐS*</th>
-                                    <th class="py-2 px-2 min-w-[105px]">PT Đồng Sơn</th>
-                                    <th class="py-2 px-2 min-w-[100px]">Công BH</th>
-                                    <th class="py-2 px-2 min-w-[105px]">PT BH</th>
-                                    <th class="py-2 px-2 bg-slate-300 font-extrabold min-w-[115px]">Tổng*</th>
-                                    <th class="py-2 px-2 min-w-[90px]">Cứu hộ</th>
-                                    <th class="py-2 px-2 bg-amber-200 text-amber-950 font-extrabold min-w-[130px]">
+                                    <th class="py-3 px-3.5 text-left bg-slate-300 sticky left-0 z-10 w-28 text-sm">Tháng</th>
+                                    <th class="py-3 px-3 bg-emerald-100 text-emerald-950 min-w-[110px]">Công BD</th>
+                                    <th class="py-3 px-3 min-w-[110px]">Công SCC</th>
+                                    <th class="py-3 px-3 min-w-[120px]">PT BD+SCC</th>
+                                    <th class="py-3 px-3 min-w-[100px]">Công Gò</th>
+                                    <th class="py-3 px-3 min-w-[110px]">Công Sơn</th>
+                                    <th class="py-3 px-3 bg-blue-100 text-blue-950 min-w-[125px]">Tổng Công ĐS*</th>
+                                    <th class="py-3 px-3 min-w-[120px]">PT Đồng Sơn</th>
+                                    <th class="py-3 px-3 min-w-[115px]">Công BH</th>
+                                    <th class="py-3 px-3 min-w-[120px]">PT BH</th>
+                                    <th class="py-3 px-3 bg-slate-300 font-black min-w-[130px]">Tổng*</th>
+                                    <th class="py-3 px-3 min-w-[100px]">Cứu hộ</th>
+                                    <th class="py-3 px-3 bg-amber-200 text-amber-950 font-black min-w-[145px]">
                                         Tổng Cộng Cứu Hộ*
                                     </th>
                                 </tr>
                             </thead>
-                            <tbody id="table13ColsBody" class="divide-y divide-slate-200 font-mono"></tbody>
-                            <tfoot id="table13ColsFoot" class="font-mono font-bold"></tfoot>
+                            <tbody id="table13ColsBody" class="divide-y divide-slate-200 font-mono font-medium"></tbody>
+                            <tfoot id="table13ColsFoot" class="font-mono font-black text-sm"></tfoot>
                         </table>
                     </div>
                 </div>
@@ -446,10 +436,9 @@ HTML_CONTENT = f"""
 
         </div>
 
-        <!-- ================= POPUP MODAL NHẬP THÁNG ĐẦY ĐỦ 3 KHỐI (ẢNH 1 CỦA USER) ================= -->
+        <!-- POPUP MODAL NHẬP THÁNG -->
         <div id="addModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto text-slate-200 animate-in fade-in zoom-in-95 duration-150">
-                
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto text-slate-200">
                 <div class="flex items-center justify-between p-5 border-b border-slate-800">
                     <div>
                         <h3 class="text-base font-bold text-white">Thêm Số Liệu Doanh Thu Tháng Mới</h3>
@@ -465,67 +454,37 @@ HTML_CONTENT = f"""
                             <input type="text" id="inThang" required class="w-full px-3 py-2 text-xs bg-slate-800/80 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="Tháng 8">
                         </div>
                         <div class="pt-5">
-                            <button type="button" onclick="copyFromLastMonth()" class="text-xs font-medium text-blue-400 hover:text-blue-300 flex items-center space-x-1.5 transition">
+                            <button type="button" onclick="copyFromLastMonth()" class="text-xs font-semibold text-blue-400 hover:text-blue-300 flex items-center space-x-1.5 transition">
                                 <span>✨</span>
                                 <span id="copyBtnLabel">Sao chép số từ Tháng 7</span>
                             </button>
                         </div>
                     </div>
 
-                    <!-- 1. BẢO DƯỠNG & SỬA CHỮA CHUNG -->
                     <div class="p-4 bg-slate-800/40 rounded-xl border border-slate-700/60 space-y-3">
                         <div class="text-xs font-bold text-blue-400 tracking-wide uppercase">1. BẢO DƯỠNG & SỬA CHỮA CHUNG</div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div>
-                                <label class="block text-[11px] text-slate-400 mb-1">Công Bảo Dưỡng</label>
-                                <input type="number" id="inCongBD" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="110000000" oninput="calcFormTotals()">
-                            </div>
-                            <div>
-                                <label class="block text-[11px] text-slate-400 mb-1">Công SCC</label>
-                                <input type="number" id="inCongSCC" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="150000000" oninput="calcFormTotals()">
-                            </div>
-                            <div>
-                                <label class="block text-[11px] text-slate-400 mb-1">Phụ tùng BD+SCC</label>
-                                <input type="number" id="inPtBDSCC" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="350000000" oninput="calcFormTotals()">
-                            </div>
+                            <div><label class="block text-[11px] text-slate-400 mb-1">Công Bảo Dưỡng</label><input type="number" id="inCongBD" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none" value="110000000" oninput="calcFormTotals()"></div>
+                            <div><label class="block text-[11px] text-slate-400 mb-1">Công SCC</label><input type="number" id="inCongSCC" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none" value="150000000" oninput="calcFormTotals()"></div>
+                            <div><label class="block text-[11px] text-slate-400 mb-1">Phụ tùng BD+SCC</label><input type="number" id="inPtBDSCC" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none" value="350000000" oninput="calcFormTotals()"></div>
                         </div>
                     </div>
 
-                    <!-- 2. TỔ ĐỒNG SƠN (BODY & PAINT) -->
                     <div class="p-4 bg-slate-800/40 rounded-xl border border-slate-700/60 space-y-3">
                         <div class="text-xs font-bold text-amber-400 tracking-wide uppercase">2. TỔ ĐỒNG SƠN (BODY & PAINT)</div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div>
-                                <label class="block text-[11px] text-slate-400 mb-1">Công Gò</label>
-                                <input type="number" id="inCongGo" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="70000000" oninput="calcFormTotals()">
-                            </div>
-                            <div>
-                                <label class="block text-[11px] text-slate-400 mb-1">Công Sơn</label>
-                                <input type="number" id="inCongSon" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="130000000" oninput="calcFormTotals()">
-                            </div>
-                            <div>
-                                <label class="block text-[11px] text-slate-400 mb-1">PT Đồng Sơn</label>
-                                <input type="number" id="inPtDS" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="450000000" oninput="calcFormTotals()">
-                            </div>
+                            <div><label class="block text-[11px] text-slate-400 mb-1">Công Gò</label><input type="number" id="inCongGo" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none" value="70000000" oninput="calcFormTotals()"></div>
+                            <div><label class="block text-[11px] text-slate-400 mb-1">Công Sơn</label><input type="number" id="inCongSon" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none" value="130000000" oninput="calcFormTotals()"></div>
+                            <div><label class="block text-[11px] text-slate-400 mb-1">PT Đồng Sơn</label><input type="number" id="inPtDS" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none" value="450000000" oninput="calcFormTotals()"></div>
                         </div>
                     </div>
 
-                    <!-- 3. BẢO HÀNH & CỨU HỘ -->
                     <div class="p-4 bg-slate-800/40 rounded-xl border border-slate-700/60 space-y-3">
                         <div class="text-xs font-bold text-emerald-400 tracking-wide uppercase">3. BẢO HÀNH & CỨU HỘ</div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div>
-                                <label class="block text-[11px] text-slate-400 mb-1">Công Bảo Hành</label>
-                                <input type="number" id="inCongBH" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="160000000" oninput="calcFormTotals()">
-                            </div>
-                            <div>
-                                <label class="block text-[11px] text-slate-400 mb-1">Phụ Tùng Bảo Hành</label>
-                                <input type="number" id="inPtBH" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="500000000" oninput="calcFormTotals()">
-                            </div>
-                            <div>
-                                <label class="block text-[11px] text-slate-400 mb-1">Cứu Hộ 24/7</label>
-                                <input type="number" id="inCuuHo" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none focus:border-blue-500" value="25000000" oninput="calcFormTotals()">
-                            </div>
+                            <div><label class="block text-[11px] text-slate-400 mb-1">Công Bảo Hành</label><input type="number" id="inCongBH" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none" value="160000000" oninput="calcFormTotals()"></div>
+                            <div><label class="block text-[11px] text-slate-400 mb-1">Phụ Tùng Bảo Hành</label><input type="number" id="inPtBH" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none" value="500000000" oninput="calcFormTotals()"></div>
+                            <div><label class="block text-[11px] text-slate-400 mb-1">Cứu Hộ 24/7</label><input type="number" id="inCuuHo" class="w-full px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white outline-none" value="25000000" oninput="calcFormTotals()"></div>
                         </div>
                     </div>
 
@@ -535,11 +494,8 @@ HTML_CONTENT = f"""
                     </div>
 
                     <div class="pt-3 flex justify-end space-x-3">
-                        <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition">Hủy Bỏ</button>
-                        <button type="submit" class="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-lg transition active:scale-95 flex items-center space-x-1.5">
-                            <span>+</span>
-                            <span>Thêm Vào Bảng Tính</span>
-                        </button>
+                        <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 rounded-xl">Hủy Bỏ</button>
+                        <button type="submit" class="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-lg">+ Thêm Vào Bảng Tính</button>
                     </div>
                 </form>
             </div>
@@ -547,7 +503,6 @@ HTML_CONTENT = f"""
 
     </div>
 
-    <!-- SCRIPT ĐIỀU KHIỂN ĐẦY ĐỦ TÍNH NĂNG -->
     <script>
         let appData = {data_json_str};
 
@@ -567,7 +522,6 @@ HTML_CONTENT = f"""
             document.getElementById('btn-tab-' + tabId).classList.add('active');
         }}
 
-        // ĐỔI CHẾ ĐỘ BIỂU ĐỒ TAB 1 (4 MẢNG / CÔNG VS PHỤ TÙNG / ĐƯỜNG TỔNG THU)
         function changeChartMode(mode) {{
             currentChartMode = mode;
             document.getElementById('btnModePillars').classList.remove('active');
@@ -701,7 +655,6 @@ HTML_CONTENT = f"""
             renderTab4Excel13Cols();
         }}
 
-        // VẼ BIỂU ĐỒ TAB 1 THEO 3 CHẾ ĐỘ
         function renderMainChartTab1() {{
             const actual = appData.actual;
             const labels = actual.map(d => d.name);
@@ -713,10 +666,10 @@ HTML_CONTENT = f"""
             if (currentChartMode === 'pillars') {{
                 legendBox.classList.remove('hidden');
                 legendBox.innerHTML = `
-                    <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-blue-600"></span><span>BD & SCC</span></div>
-                    <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-amber-500"></span><span>Đồng Sơn</span></div>
-                    <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-emerald-500"></span><span>Bảo Hành Chính Hãng</span></div>
-                    <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-purple-600"></span><span>Cứu Hộ Giao Thông</span></div>
+                    <div class="flex items-center space-x-2"><span class="w-3.5 h-3.5 rounded bg-blue-600"></span><span>BD & SCC</span></div>
+                    <div class="flex items-center space-x-2"><span class="w-3.5 h-3.5 rounded bg-amber-500"></span><span>Đồng Sơn</span></div>
+                    <div class="flex items-center space-x-2"><span class="w-3.5 h-3.5 rounded bg-emerald-500"></span><span>Bảo Hành Chính Hãng</span></div>
+                    <div class="flex items-center space-x-2"><span class="w-3.5 h-3.5 rounded bg-purple-600"></span><span>Cứu Hộ Giao Thông</span></div>
                 `;
                 mainChartInstance = new Chart(ctx, {{
                     type: 'bar',
@@ -731,15 +684,18 @@ HTML_CONTENT = f"""
                     }},
                     options: {{
                         responsive: true, maintainAspectRatio: false,
-                        scales: {{ x: {{ stacked: true, grid: {{ display: false }} }}, y: {{ stacked: true, grid: {{ color: '#f1f5f9' }} }} }},
+                        scales: {{
+                            x: {{ stacked: true, grid: {{ display: false }}, ticks: {{ font: {{ weight: 'bold', size: 12 }} }} }},
+                            y: {{ stacked: true, grid: {{ color: '#f1f5f9' }}, ticks: {{ font: {{ weight: 'bold', size: 12 }}, callback: v => v + ' tỷ' }} }}
+                        }},
                         plugins: {{ legend: {{ display: false }} }}
                     }}
                 }});
             }} else if (currentChartMode === 'labor-parts') {{
                 legendBox.classList.remove('hidden');
                 legendBox.innerHTML = `
-                    <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-[#3b82f6]"></span><span>Tiền Công (Labor)</span></div>
-                    <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-[#ec4899]"></span><span>Phụ Tùng (Parts)</span></div>
+                    <div class="flex items-center space-x-2"><span class="w-3.5 h-3.5 rounded bg-[#3b82f6]"></span><span>Tiền Công (Labor)</span></div>
+                    <div class="flex items-center space-x-2"><span class="w-3.5 h-3.5 rounded bg-[#ec4899]"></span><span>Phụ Tùng (Parts)</span></div>
                 `;
                 mainChartInstance = new Chart(ctx, {{
                     type: 'bar',
@@ -752,15 +708,17 @@ HTML_CONTENT = f"""
                     }},
                     options: {{
                         responsive: true, maintainAspectRatio: false,
-                        scales: {{ x: {{ stacked: false, grid: {{ display: false }} }}, y: {{ grid: {{ color: '#f1f5f9' }} }} }},
+                        scales: {{
+                            x: {{ grid: {{ display: false }}, ticks: {{ font: {{ weight: 'bold', size: 12 }} }} }},
+                            y: {{ grid: {{ color: '#f1f5f9' }}, ticks: {{ font: {{ weight: 'bold', size: 12 }}, callback: v => v + ' tỷ' }} }}
+                        }},
                         plugins: {{ legend: {{ display: false }} }}
                     }}
                 }});
             }} else {{
-                // ĐƯỜNG TỔNG THU (ẢNH 1)
                 legendBox.classList.remove('hidden');
                 legendBox.innerHTML = `
-                    <div class="flex items-center space-x-1.5"><span class="w-3.5 h-1.5 rounded bg-blue-600"></span><span class="text-blue-600 font-bold">Tổng Doanh Thu</span></div>
+                    <div class="flex items-center space-x-2"><span class="w-4 h-2 rounded bg-blue-600"></span><span class="text-blue-600 font-extrabold text-sm">Đường Tổng Doanh Thu</span></div>
                 `;
                 mainChartInstance = new Chart(ctx, {{
                     type: 'line',
@@ -771,22 +729,24 @@ HTML_CONTENT = f"""
                             data: actual.map(d => d.total / 1000000000),
                             borderColor: '#2563eb',
                             backgroundColor: '#2563eb',
-                            borderWidth: 3,
+                            borderWidth: 3.5,
                             tension: 0.35,
-                            pointRadius: 5,
+                            pointRadius: 6,
                             pointBackgroundColor: '#2563eb'
                         }}]
                     }},
                     options: {{
                         responsive: true, maintainAspectRatio: false,
-                        scales: {{ x: {{ grid: {{ display: false }} }}, y: {{ grid: {{ color: '#f1f5f9' }} }} }},
+                        scales: {{
+                            x: {{ grid: {{ display: false }}, ticks: {{ font: {{ weight: 'bold', size: 12 }} }} }},
+                            y: {{ grid: {{ color: '#f1f5f9' }}, ticks: {{ font: {{ weight: 'bold', size: 12 }}, callback: v => v + ' tỷ' }} }}
+                        }},
                         plugins: {{ legend: {{ display: false }} }}
                     }}
                 }});
             }}
         }}
 
-        // DONUT LŨY KẾ TAB 1
         function renderDonutTab1() {{
             const actual = appData.actual;
             const totBDSCC = actual.reduce((s, r) => s + (r.congBD + r.congSCC + r.ptBDSCC), 0);
@@ -797,10 +757,10 @@ HTML_CONTENT = f"""
 
             document.getElementById('donutCenterTotal').innerText = (grandTotal / 1000000000).toFixed(2) + ' tỷ';
             document.getElementById('donutLegend').innerHTML = `
-                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span><span>Bảo Dưỡng & SCC</span></div><span class="font-bold font-mono">${{((totBDSCC/grandTotal)*100).toFixed(1)}}%</span></div>
-                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span><span>Đồng Sơn (Gò + Sơn)</span></div><span class="font-bold font-mono">${{((totDS/grandTotal)*100).toFixed(1)}}%</span></div>
-                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span><span>Bảo Hành Chính Hãng</span></div><span class="font-bold font-mono">${{((totBH/grandTotal)*100).toFixed(1)}}%</span></div>
-                <div class="flex justify-between items-center"><div class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-purple-600"></span><span>Cứu Hộ Giao Thông</span></div><span class="font-bold font-mono">${{((totCH/grandTotal)*100).toFixed(1)}}%</span></div>
+                <div class="flex justify-between items-center text-xs md:text-sm"><div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-blue-600"></span><span class="font-semibold text-slate-800">Bảo Dưỡng & SCC</span></div><span class="font-extrabold font-mono text-slate-900">${{((totBDSCC/grandTotal)*100).toFixed(1)}}%</span></div>
+                <div class="flex justify-between items-center text-xs md:text-sm"><div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-amber-500"></span><span class="font-semibold text-slate-800">Đồng Sơn (Gò + Sơn)</span></div><span class="font-extrabold font-mono text-slate-900">${{((totDS/grandTotal)*100).toFixed(1)}}%</span></div>
+                <div class="flex justify-between items-center text-xs md:text-sm"><div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-emerald-500"></span><span class="font-semibold text-slate-800">Bảo Hành Chính Hãng</span></div><span class="font-extrabold font-mono text-slate-900">${{((totBH/grandTotal)*100).toFixed(1)}}%</span></div>
+                <div class="flex justify-between items-center text-xs md:text-sm"><div class="flex items-center space-x-2"><span class="w-3 h-3 rounded-full bg-purple-600"></span><span class="font-semibold text-slate-800">Cứu Hộ Giao Thông</span></div><span class="font-extrabold font-mono text-slate-900">${{((totCH/grandTotal)*100).toFixed(1)}}%</span></div>
             `;
 
             const ctxDonut = document.getElementById('donutChart').getContext('2d');
@@ -819,13 +779,12 @@ HTML_CONTENT = f"""
             }});
         }}
 
-        // TAB 2: CHỌN THÁNG
         function renderTab2MonthPills() {{
             const container = document.getElementById('monthPillContainer');
             container.innerHTML = '';
             appData.actual.forEach((m, idx) => {{
                 const btn = document.createElement('button');
-                btn.className = 'month-pill px-3 py-1 text-xs rounded-lg font-medium text-slate-600 transition';
+                btn.className = 'month-pill px-3.5 py-1.5 text-xs font-bold rounded-lg text-slate-700 transition';
                 if (idx === currentSelectedMonthIdx) btn.classList.add('active');
                 btn.innerText = m.name;
                 btn.onclick = () => selectMonth(idx);
@@ -855,7 +814,7 @@ HTML_CONTENT = f"""
                 const prev = appData.actual[idx - 1];
                 const mom = ((m.total - prev.total) / prev.total) * 100;
                 document.getElementById('mCardMoM').innerText = (mom > 0 ? '+' : '') + mom.toFixed(1) + '%';
-                document.getElementById('mCardMoM').className = 'text-lg font-bold mt-1 ' + (mom >= 0 ? 'text-emerald-600' : 'text-red-500');
+                document.getElementById('mCardMoM').className = 'text-2xl font-black mt-1 ' + (mom >= 0 ? 'text-emerald-600' : 'text-red-500');
                 document.getElementById('mCardPrev').innerText = 'Tháng trước: ' + (prev.total / 1000000000).toFixed(2) + ' tỷ';
             }} else {{
                 document.getElementById('mCardMoM').innerText = '—';
@@ -873,9 +832,7 @@ HTML_CONTENT = f"""
             updateMonthChartsAndRankings(m, mLabor, mParts);
         }}
 
-        // VẼ BIỂU ĐỒ CỘT ĐÔI + DONUT + BẢNG XẾP HẠNG 9 HẠNG MỤC CỦA THÁNG
         function updateMonthChartsAndRankings(m, mLabor, mParts) {{
-            // 1. Biểu đồ 4 trụ cột có cột đôi (Tiền Công + PT đứng cạnh Tổng Cả Mảng - Ảnh 3)
             const valBDSCC = m.congBD + m.congSCC + m.ptBDSCC;
             const valDS = m.tongCongDS + m.ptDS;
             const valBH = m.congBH + m.ptBH;
@@ -896,14 +853,13 @@ HTML_CONTENT = f"""
                 options: {{
                     responsive: true, maintainAspectRatio: false,
                     scales: {{
-                        x: {{ grid: {{ display: false }} }},
-                        y: {{ ticks: {{ callback: v => (v/1000000) + 'tr' }}, grid: {{ color: '#f1f5f9' }} }}
+                        x: {{ grid: {{ display: false }}, ticks: {{ font: {{ weight: 'bold', size: 12 }} }} }},
+                        y: {{ ticks: {{ font: {{ weight: 'bold', size: 11 }}, callback: v => (v/1000000) + 'tr' }}, grid: {{ color: '#f1f5f9' }} }}
                     }},
                     plugins: {{ legend: {{ display: false }} }}
                 }}
             }});
 
-            // 2. Donut của tháng kèm đầy đủ số tiền và % (Ảnh 5)
             document.getElementById('donutMonthCenterName').innerText = m.name;
             document.getElementById('donutMonthCenterTotal').innerText = (m.total / 1000000000).toFixed(2) + ' tỷ';
 
@@ -924,13 +880,13 @@ HTML_CONTENT = f"""
 
             const fmtCompact = v => v >= 1000000000 ? (v/1000000000).toFixed(2) + ' tỷ' : (v/1000000).toFixed(1) + ' tr';
             document.getElementById('monthDonutList').innerHTML = `
-                <div class="flex items-center justify-between text-[11px]"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-600"></span><span class="text-slate-700">Bảo Dưỡng & SCC</span></div><div class="flex items-center gap-2 font-mono"><span class="text-slate-500">${{fmtCompact(valBDSCC)}}</span><span class="font-bold text-slate-900 w-12 text-right">${{((valBDSCC/m.total)*100).toFixed(1)}}%</span></div></div>
-                <div class="flex items-center justify-between text-[11px]"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-500"></span><span class="text-slate-700">Tổ Đồng Sơn</span></div><div class="flex items-center gap-2 font-mono"><span class="text-slate-500">${{fmtCompact(valDS)}}</span><span class="font-bold text-slate-900 w-12 text-right">${{((valDS/m.total)*100).toFixed(1)}}%</span></div></div>
-                <div class="flex items-center justify-between text-[11px]"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500"></span><span class="text-slate-700">Bảo Hành (OEM)</span></div><div class="flex items-center gap-2 font-mono"><span class="text-slate-500">${{fmtCompact(valBH)}}</span><span class="font-bold text-slate-900 w-12 text-right">${{((valBH/m.total)*100).toFixed(1)}}%</span></div></div>
-                <div class="flex items-center justify-between text-[11px]"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-purple-600"></span><span class="text-slate-700">Cứu Hộ Giao Thông</span></div><div class="flex items-center gap-2 font-mono"><span class="text-slate-500">${{fmtCompact(valCH)}}</span><span class="font-bold text-slate-900 w-12 text-right">${{((valCH/m.total)*100).toFixed(1)}}%</span></div></div>
+                <div class="flex items-center justify-between text-xs font-medium"><div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span><span class="text-slate-800">Bảo Dưỡng & SCC</span></div><div class="flex items-center gap-2 font-mono"><span class="text-slate-600 font-bold">${{fmtCompact(valBDSCC)}}</span><span class="font-extrabold text-slate-900 w-12 text-right">${{((valBDSCC/m.total)*100).toFixed(1)}}%</span></div></div>
+                <div class="flex items-center justify-between text-xs font-medium"><div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span><span class="text-slate-800">Tổ Đồng Sơn</span></div><div class="flex items-center gap-2 font-mono"><span class="text-slate-600 font-bold">${{fmtCompact(valDS)}}</span><span class="font-extrabold text-slate-900 w-12 text-right">${{((valDS/m.total)*100).toFixed(1)}}%</span></div></div>
+                <div class="flex items-center justify-between text-xs font-medium"><div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span><span class="text-slate-800">Bảo Hành (OEM)</span></div><div class="flex items-center gap-2 font-mono"><span class="text-slate-600 font-bold">${{fmtCompact(valBH)}}</span><span class="font-extrabold text-slate-900 w-12 text-right">${{((valBH/m.total)*100).toFixed(1)}}%</span></div></div>
+                <div class="flex items-center justify-between text-xs font-medium"><div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-purple-600"></span><span class="text-slate-800">Cứu Hộ Giao Thông</span></div><div class="flex items-center gap-2 font-mono"><span class="text-slate-600 font-bold">${{fmtCompact(valCH)}}</span><span class="font-extrabold text-slate-900 w-12 text-right">${{((valCH/m.total)*100).toFixed(1)}}%</span></div></div>
             `;
 
-            // 3. BẢNG XẾP HẠNG 9 HẠNG MỤC TỪ CAO XUỐNG THẤP (ẢNH 4 CỦA USER)
+            // BẢNG XẾP HẠNG 9 HẠNG MỤC PHÓNG TO (ẢNH 1 CỦA USER)
             document.getElementById('rankTitle').innerText = 'Bảng Xếp Hạng Hạng Mục Thực Tế Trong ' + m.name + ' (Từ Cao Xuống Thấp)';
             const items = [
                 {{ name: 'PT Bảo hành', value: m.ptBH, group: 'Phụ tùng' }},
@@ -949,25 +905,25 @@ HTML_CONTENT = f"""
             items.forEach((it, idx) => {{
                 const pct = ((it.value / m.total) * 100).toFixed(1);
                 const el = document.createElement('div');
-                el.className = 'p-3 rounded-xl border border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs';
+                el.className = 'p-3.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 shadow-2xs flex items-center justify-between transition';
                 el.innerHTML = `
-                    <div class="flex items-center gap-2.5">
-                        <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-700 font-bold text-[10px] flex items-center justify-center">${{idx + 1}}</span>
+                    <div class="flex items-center gap-3">
+                        <span class="w-7 h-7 rounded-full bg-slate-100 border border-slate-300 text-slate-800 font-black text-xs flex items-center justify-center shrink-0">${{idx + 1}}</span>
                         <div>
-                            <span class="font-bold text-slate-800 block">${{it.name}}</span>
-                            <span class="text-[10px] text-slate-400">${{it.group}}</span>
+                            <span class="font-extrabold text-sm text-slate-900 block">${{it.name}}</span>
+                            <span class="text-xs text-slate-500 font-semibold">${{it.group}}</span>
                         </div>
                     </div>
                     <div class="text-right font-mono">
-                        <span class="font-bold text-slate-900 block">${{(it.value/1000000).toFixed(1)}} tr</span>
-                        <span class="text-[10px] text-slate-500">${{pct}}%</span>
+                        <span class="font-black text-base text-slate-900 block">${{(it.value/1000000).toFixed(1)}} tr</span>
+                        <span class="text-xs font-bold text-slate-500">${{pct}}%</span>
                     </div>
                 `;
                 rankContainer.appendChild(el);
             }});
         }}
 
-        // TAB 4: BẢNG TÍNH GỐC EXCEL 13 CỘT ĐẦY ĐỦ TỪNG ĐỒNG (ẢNH 7 CỦA USER)
+        // BẢNG TÍNH 13 CỘT EXCEL PHÓNG TO RÕ RÀNG (ẢNH 2 CỦA BẠN)
         function renderTab4Excel13Cols() {{
             const tbody = document.getElementById('table13ColsBody');
             tbody.innerHTML = '';
@@ -975,26 +931,25 @@ HTML_CONTENT = f"""
 
             actual.forEach(r => {{
                 const tr = document.createElement('tr');
-                tr.className = 'hover:bg-slate-50 divide-x divide-slate-200';
+                tr.className = 'hover:bg-blue-50/40 divide-x divide-slate-200 transition-colors';
                 tr.innerHTML = `
-                    <td class="py-2.5 px-3 font-bold bg-slate-50 sticky left-0 z-10">${{r.name}}</td>
-                    <td class="py-2 px-2 text-right bg-emerald-50/50">${{r.congBD.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{r.congSCC.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{r.ptBDSCC.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{r.congGo.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{r.congSon.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right bg-blue-50/70 font-semibold text-blue-900">${{r.tongCongDS.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{r.ptDS.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{r.congBH.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{r.ptBH.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right bg-slate-100 font-bold">${{r.tong.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{r.cuuHo.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right bg-amber-100 text-amber-950 font-black">${{r.total.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3.5 font-bold bg-slate-50 sticky left-0 z-10 text-slate-900 text-sm">${{r.name}}</td>
+                    <td class="py-3 px-3 text-right bg-emerald-50/60 font-semibold text-emerald-950">${{r.congBD.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-semibold">${{r.congSCC.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-semibold">${{r.ptBDSCC.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-semibold">${{r.congGo.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-semibold">${{r.congSon.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right bg-blue-50/80 font-bold text-blue-950">${{r.tongCongDS.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-semibold">${{r.ptDS.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-semibold">${{r.congBH.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-semibold">${{r.ptBH.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right bg-slate-200/80 font-bold text-slate-950">${{r.tong.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-semibold">${{r.cuuHo.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right bg-amber-100 font-black text-amber-950 text-sm">${{r.total.toLocaleString('vi-VN')}} đ</td>
                 `;
                 tbody.appendChild(tr);
             }});
 
-            // Dòng tổng cộng 13 cột chuẩn xác
             const totCongBD = actual.reduce((s, r) => s + r.congBD, 0);
             const totCongSCC = actual.reduce((s, r) => s + r.congSCC, 0);
             const totPtBDSCC = actual.reduce((s, r) => s + r.ptBDSCC, 0);
@@ -1009,20 +964,20 @@ HTML_CONTENT = f"""
             const totGrand = actual.reduce((s, r) => s + r.total, 0);
 
             document.getElementById('table13ColsFoot').innerHTML = `
-                <tr class="bg-slate-200 border-t-2 border-slate-400 divide-x divide-slate-300">
-                    <td class="py-2.5 px-3 bg-slate-300 font-black sticky left-0 z-10">Tổng Thực Tế</td>
-                    <td class="py-2 px-2 text-right text-emerald-950 font-bold">${{totCongBD.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{totCongSCC.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{totPtBDSCC.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{totCongGo.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{totCongSon.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right bg-blue-100 text-blue-950 font-bold">${{totTongCongDS.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{totPtDS.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{totCongBH.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{totPtBH.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right bg-slate-300 font-black">${{totTong.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right">${{totCuuHo.toLocaleString('vi-VN')}} đ</td>
-                    <td class="py-2 px-2 text-right bg-amber-200 text-amber-950 font-black">${{totGrand.toLocaleString('vi-VN')}} đ</td>
+                <tr class="bg-slate-200 border-t-2 border-slate-400 divide-x divide-slate-300 text-sm">
+                    <td class="py-3 px-3.5 bg-slate-300 font-black sticky left-0 z-10 text-slate-950">Tổng Thực Tế</td>
+                    <td class="py-3 px-3 text-right text-emerald-950 font-black">${{totCongBD.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-black">${{totCongSCC.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-black">${{totPtBDSCC.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-black">${{totCongGo.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-black">${{totCongSon.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right bg-blue-100 text-blue-950 font-black">${{totTongCongDS.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-black">${{totPtDS.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-black">${{totCongBH.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-black">${{totPtBH.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right bg-slate-300 font-black text-slate-950">${{totTong.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right font-black">${{totCuuHo.toLocaleString('vi-VN')}} đ</td>
+                    <td class="py-3 px-3 text-right bg-amber-200 text-amber-950 font-black text-sm">${{totGrand.toLocaleString('vi-VN')}} đ</td>
                 </tr>
             `;
         }}
@@ -1045,4 +1000,4 @@ HTML_CONTENT = f"""
 </html>
 """
 
-components.html(HTML_CONTENT, height=980, scrolling=True)
+components.html(HTML_CONTENT, height=1020, scrolling=True)
