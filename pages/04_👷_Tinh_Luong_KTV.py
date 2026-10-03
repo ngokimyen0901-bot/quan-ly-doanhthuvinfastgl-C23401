@@ -12,7 +12,7 @@ st.set_page_config(
 )
 
 st.title("👷 Hệ Thống Tính Lương & Đối Soát Công Kỹ Thuật Viên")
-st.caption("☁️ Phân bổ giảm giá tự động theo tổ thợ | Chỉnh sửa tiền trực tiếp bên KTV | Báo động lệnh thiếu thợ.")
+st.caption("☁️ Đối soát chuẩn 100% | Không trừ MTBH vào công thợ | Báo động thiếu KTV | Lưu trữ: **Luong_KTV**.")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -186,7 +186,6 @@ with st.expander("📥 Nạp Tệp Dữ Liệu Tính Lương Mới", expanded=df
     with c5:
         up_pdi = st.file_uploader("5. Danh sách lệnh PDI (Tùy chọn):", type=['xlsx', 'xls', 'csv'], key="p4_pdi")
 
-# Xử lý khi người dùng nạp file mới
 if up_5114 and (up_ktv_hd or up_ktv_lenh):
     df_5114 = doc_file_5114_chuan(up_5114)
     
@@ -247,7 +246,6 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
 
     df_5114_valid['key_match'] = df_5114_valid.apply(tao_key_match_5114, axis=1)
 
-    # Gom nhóm 5114
     df_5114_grouped = df_5114_valid.groupby('key_match').agg({
         col_5114_ro_hang: 'first' if col_5114_ro_hang in df_5114_valid.columns else lambda x: '',
         col_5114_ro_nb: 'first' if col_5114_ro_nb in df_5114_valid.columns else lambda x: '',
@@ -259,7 +257,7 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
         col_5114_dg: lambda x: " | ".join(sorted(set([str(v) for v in x if pd.notna(v)])))[:200] if col_5114_dg in df_5114_valid.columns else lambda x: ''
     }).reset_index().rename(columns={'Tien_Dau_Vao': 'Tien_5114'})
 
-    # 3. Xử lý Bảo Hành
+    # Xử lý Bảo Hành
     bh_wo_set = set()
     df_bh_split = pd.DataFrame()
 
@@ -294,9 +292,12 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
         df_bh_split['Cong_BH_Thuc_Nhan'] = df_bh_split['Tien_Cong_BH'] / df_bh_split['So_KTV_Lam_Chung']
 
     # =========================================================================
-    # QUY ƯỚC PHÂN BỔ GIẢM GIÁ TỰ ĐỘNG CHUẨN XÁC:
-    # - Giảm giá Sơn (MTBH_SON / nội dung có 'sơn'): Trừ đều cho các thợ làm Sơn!
-    # - Giảm giá Gò / Sửa chữa / Phụ tùng (MTBH_GO, MTBH_PT): Trừ đều cho thợ làm Gò / Sửa chữa / Bảo dưỡng!
+    # LOGIC CHIA TIỀN CÔNG THỢ CHUẨN XÁC TUYỆT ĐỐI:
+    # 1. KHÔNG TRỪ MTBH (Miễn thường bảo hiểm) vào công thợ! MTBH là bù trừ bảo hiểm.
+    # 2. CHỈ TRỪ KHI NỘI DUNG GHI RÕ CHỮ 'GIẢM GIÁ':
+    #    - Giảm giá Sơn: trừ thợ Sơn
+    #    - Giảm giá Nhân công sửa chữa: trừ thợ Sửa chữa / Gò
+    # 3. NẾU LỆNH CÓ TIỀN NHƯNG KHÔNG CÓ THỢ -> BÁO ĐỘNG (ALARM) NGAY!
     # =========================================================================
     ktv_details_temp = []
 
@@ -322,6 +323,7 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
                 'Ma_KTV': 'Khoản mục riêng',
                 'Ten_KTV': 'Cứu hộ (Không tính công KTV)',
                 'Tien_Thuc_Nhan': tien_5114,
+                'Tien_Chot_KTV': tien_5114,
                 'Tien_5114': tien_5114
             })
             continue
@@ -339,17 +341,17 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
                 'Ma_KTV': 'Bảo hành hãng',
                 'Ten_KTV': 'Chi tiết xem tại Tab Bảo Hành',
                 'Tien_Thuc_Nhan': tien_5114,
+                'Tien_Chot_KTV': tien_5114,
                 'Tien_5114': tien_5114
             })
             continue
 
-        # Lấy tất cả dòng công việc của lệnh này từ Cyber
         sub_all = df_ktv_for_sc[df_ktv_for_sc['key_match'] == k_match].copy()
 
         if not sub_all.empty:
             bs_k = sub_all['Bien_So_Val'].iloc[0]
 
-            # 1. Tách các dòng GIẢM GIÁ (có tiền âm, không có thợ)
+            # 1. CHỈ TÍNH DÒNG CÓ CHỮ 'GIẢM GIÁ' / 'CHIẾT KHẤU' (BỎ QUA HOÀN TOÀN DÒNG 'MIỄN THƯỜNG')
             giam_gia_son = 0.0
             giam_gia_go_sc = 0.0
 
@@ -358,16 +360,16 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
                 nd_d = str(r_d['Noi_Dung_Val']).lower()
                 cv_d = str(r_d['Ma_CV_Val']).lower()
                 val_d = abs(r_d['Tien_KTV_Theo_HD'])
-                if 'sơn' in nd_d or 'mtbh_son' in cv_d:
-                    giam_gia_son += val_d
-                else:
-                    giam_gia_go_sc += val_d
+                if 'giảm giá' in nd_d or 'chiết khấu' in nd_d or 'ck' in nd_d:
+                    if 'sơn' in nd_d or 'mtbh_son' in cv_d:
+                        giam_gia_son += val_d
+                    else:
+                        giam_gia_go_sc += val_d
 
-            # 2. Lấy các dòng CÔNG VIỆC THẬT SỰ CỦA THỢ (có Mã KTV và tiền > 0)
+            # 2. Lấy các dòng CÔNG VIỆC THẬT SỰ CỦA THỢ (có Mã KTV và tiền theo HĐ > 0)
             sub_works = sub_all[(sub_all['Ma_KTV_Clean'] != '') & (sub_all['Tien_KTV_Theo_HD'] > 0)].copy()
 
             if not sub_works.empty:
-                # Phân loại công việc: Sơn vs Gò/Sửa chữa
                 sub_works['is_son'] = sub_works['Hang_Muc_Val'].astype(str).str.lower().str.contains('sơn') | sub_works['Noi_Dung_Val'].astype(str).str.lower().str.contains('sơn')
 
                 tong_goc_son = sub_works[sub_works['is_son']]['Tien_KTV_Theo_HD'].sum()
@@ -380,10 +382,9 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
                     tien_goc = group_task['Tien_KTV_Theo_HD'].iloc[0]
                     is_s = group_task['is_son'].iloc[0]
 
-                    # Trừ giảm giá tự động theo tỷ lệ
-                    if is_s and tong_goc_son > 0:
+                    if is_s and tong_goc_son > 0 and giam_gia_son > 0:
                         tien_sau_giam = tien_goc - (giam_gia_son * (tien_goc / tong_goc_son))
-                    elif (not is_s) and tong_goc_go > 0:
+                    elif (not is_s) and tong_goc_go > 0 and giam_gia_go_sc > 0:
                         tien_sau_giam = tien_goc - (giam_gia_go_sc * (tien_goc / tong_goc_go))
                     else:
                         tien_sau_giam = tien_goc
@@ -405,10 +406,10 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
                             'Ma_KTV': r_tho['Ma_KTV_Clean'],
                             'Ten_KTV': r_tho['Ten_KTV_Clean'],
                             'Tien_Thuc_Nhan': tien_moi_tho,
+                            'Tien_Chot_KTV': tien_moi_tho,
                             'Tien_5114': tien_5114
                         })
             else:
-                # Có lệnh nhưng không có KTV -> BÁO ĐỘNG
                 ktv_details_temp.append({
                     'key_match': k_match,
                     'Loai_Cong': 'Sửa chữa (5114)',
@@ -421,6 +422,7 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
                     'Ma_KTV': '🚨 CẦN GÁN THỢ',
                     'Ten_KTV': '🚨 BÁO ĐỘNG THIẾU THỢ',
                     'Tien_Thuc_Nhan': 0.0,
+                    'Tien_Chot_KTV': 0.0,
                     'Tien_5114': tien_5114
                 })
         else:
@@ -436,18 +438,22 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
                 'Ma_KTV': '🚨 CẦN GÁN THỢ',
                 'Ten_KTV': '🚨 BÁO ĐỘNG THIẾU THỢ',
                 'Tien_Thuc_Nhan': 0.0,
+                'Tien_Chot_KTV': 0.0,
                 'Tien_5114': tien_5114
             })
 
     df_ktv_split_master = pd.DataFrame(ktv_details_temp)
 
-    # Đưa cột điều chỉnh của người dùng vào Tab 2
-    df_ktv_split_master['Tien_Chot_KTV'] = df_ktv_split_master['Tien_Thuc_Nhan']
+    # Khôi phục các dòng đã sửa tay lưu trên Google Sheets
+    if not df_saved_gs.empty and 'key_match' in df_saved_gs.columns and 'Tien_Chot_KTV' in df_saved_gs.columns:
+        map_chot_tay = df_saved_gs.set_index(['key_match', 'Ma_KTV', 'Noi_Dung_CV'])['Tien_Chot_KTV'].to_dict()
+        for idx_r, r_val in df_ktv_split_master.iterrows():
+            k_tuple = (r_val['key_match'], r_val['Ma_KTV'], r_val['Noi_Dung_CV'])
+            if k_tuple in map_chot_tay:
+                df_ktv_split_master.at[idx_r, 'Tien_Chot_KTV'] = clean_num(map_chot_tay[k_tuple])
 
-    # Tính tổng tiền KTV đã chia cho từng lệnh
     ktv_totals = df_ktv_split_master.groupby('key_match')['Tien_Chot_KTV'].sum().to_dict()
 
-    # Gán trạng thái Khớp vs Lệch cho từng dòng ở Tab 2
     def xac_dinh_trang_thai_row(r):
         k = r['key_match']
         if r['Ma_KTV'] in ['🚨 CẦN GÁN THỢ', '']:
@@ -463,7 +469,6 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
 
     df_ktv_split_master['Trang_Thai_Khop'] = df_ktv_split_master.apply(xac_dinh_trang_thai_row, axis=1)
 
-    # Tính bảng đối soát Tab 1 từ dữ liệu KTV
     df_sc_summary_grouped = df_5114_grouped.copy()
     df_sc_summary_grouped['Tien_KTV'] = df_sc_summary_grouped['key_match'].map(ktv_totals).fillna(0)
     df_sc_summary_grouped['Chenh_Lech'] = df_sc_summary_grouped['Tien_5114'] - df_sc_summary_grouped['Tien_KTV']
@@ -478,9 +483,16 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
 
     df_sc_summary_grouped['Ghi_Chu_Doi_Soat'] = df_sc_summary_grouped.apply(danh_gia_trang_thai_sc, axis=1)
 
-    # Gộp KTV làm lệnh cho Tab 1
-    ktv_names_map = df_ktv_split_master.groupby('key_match')['Ten_KTV'].apply(lambda x: ", ".join(sorted(set([str(v) for v in x if v not in ['', 'None', np.nan]])))).to_dict()
-    df_sc_summary_grouped['Ten_KTV_Clean'] = df_sc_summary_grouped['key_match'].map(ktv_names_map).fillna('')
+    def gom_ten_tho(ds):
+        s_tho = set()
+        for v in ds:
+            ten_s = str(v).strip()
+            if ten_s and ten_s not in ['None', 'nan', '🚨 BÁO ĐỘNG THIẾU THỢ']:
+                s_tho.add(ten_s)
+        return ", ".join(sorted(s_tho))
+    
+    ktv_names_map = df_ktv_split_master.groupby('key_match')['Ten_KTV'].apply(gom_ten_tho).to_dict()
+    df_sc_summary_grouped['Ten_KTV_Clean'] = df_sc_summary_grouped['key_match'].map(ktv_names_map).fillna('🚨 Chưa có thợ')
 
     st.session_state['df_ktv_split_master'] = df_ktv_split_master
     st.session_state['df_sc_summary_grouped'] = df_sc_summary_grouped
@@ -501,7 +513,6 @@ else:
     df_bh_split = pd.DataFrame()
 
 if not df_ktv_split_master.empty:
-    # CẢNH BÁO ALARM NẾU CÓ LỆNH THIẾU KTV
     so_ca_alarm = (df_ktv_split_master['Trang_Thai_Khop'].astype(str).str.contains('ALARM|THIẾU KTV')).sum()
     if so_ca_alarm > 0:
         st.error(f"🚨 **BÁO ĐỘNG: CÓ {so_ca_alarm} LỆNH ĐÃ DUYỆT NHƯNG CHƯA CÓ TÊN KTV TRONG HỆ THỐNG!** Vui lòng kiểm tra các dòng bôi đỏ.")
@@ -513,39 +524,40 @@ if not df_ktv_split_master.empty:
         "💰 4. Bảng Tổng Hợp Lương KTV"
     ])
 
-    # ==================== TAB 1: ĐỐI SOÁT TỔNG HỢP (ĐÃ BỎ CỘT ĐIỀU CHỈNH) ====================
+    # ==================== TAB 1: ĐỐI SOÁT TỔNG HỢP ====================
     with tab_sc:
-        st.subheader("🔧 Bảng Đối Soát 5114 Đầy Đủ Doanh Thu")
-        st.info("💡 **Ghi nhận 100% doanh thu:** Cột điều chỉnh đã được chuyển sang **Tab 2** để bạn chỉnh trực tiếp trên từng thợ. Khi bạn chỉnh bên Tab 2, trạng thái khớp sẽ tự động cập nhật.")
+        st.subheader("🔧 Bảng Đối Soát 5114 Đầy Đủ Doanh Thu (675tr)")
+        st.info("💡 **Ghi nhận 100% doanh thu:** Cột điều chỉnh đã chuyển sang **Tab 2** để bạn chỉnh trực tiếp trên từng thợ. Khi bạn chỉnh ở Tab 2, trạng thái khớp sẽ tự động cập nhật.")
 
-        cnt_khop = (df_sc_summary_grouped['Ghi_Chu_Doi_Soat'] == "🟢 Khớp 100%").sum()
-        cnt_lech = len(df_sc_summary_grouped) - cnt_khop
+        if not df_sc_summary_grouped.empty:
+            cnt_khop = (df_sc_summary_grouped['Ghi_Chu_Doi_Soat'] == "🟢 Khớp 100%").sum()
+            cnt_lech = len(df_sc_summary_grouped) - cnt_khop
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Tổng Doanh Thu 5114", f"{df_sc_summary_grouped['Tien_5114'].sum():,.0f} đ", f"{len(df_sc_summary_grouped)} lệnh/dòng")
-        m2.metric("Lệnh Khớp Chuẩn (Tự động)", f"{cnt_khop} lệnh")
-        m3.metric("Lệnh Cần Lưu Ý", f"{cnt_lech} lệnh", delta=f"{cnt_lech} ca" if cnt_lech > 0 else "0", delta_color="inverse")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Tổng Doanh Thu 5114", f"{df_sc_summary_grouped['Tien_5114'].sum():,.0f} đ", f"{len(df_sc_summary_grouped)} lệnh/dòng")
+            m2.metric("Lệnh Khớp Chuẩn (Tự động)", f"{cnt_khop} lệnh")
+            m3.metric("Lệnh Cần Lưu Ý", f"{cnt_lech} lệnh", delta=f"{cnt_lech} ca" if cnt_lech > 0 else "0", delta_color="inverse")
 
-        cols_sc_show = ['Số R/O hãng', 'Số R/O', 'Ngày C.từ', 'Số hóa đơn', 'Tien_5114', 'Tien_KTV', 'Chenh_Lech', 'Ghi_Chu_Doi_Soat', 'Ten_KTV_Clean']
-        cols_sc_valid = [c for c in cols_sc_show if c in df_sc_summary_grouped.columns]
-        
-        cfg_sc = {
-            "Số R/O hãng": st.column_config.TextColumn("Số RO hãng", width="medium"),
-            "Số R/O": st.column_config.TextColumn("Số RO nội bộ", width="medium"),
-            "Ngày C.từ": st.column_config.TextColumn("Ngày xuất HĐ", width="small"),
-            "Số hóa đơn": st.column_config.TextColumn("Số HĐ", width="small"),
-            "Tien_5114": st.column_config.NumberColumn("Tiền 5114", format="%,d đ", width="medium"),
-            "Tien_KTV": st.column_config.NumberColumn("Tổng Tiền KTV", format="%,d đ", width="medium"),
-            "Chenh_Lech": st.column_config.NumberColumn("Chênh lệch", format="%,d đ", width="small"),
-            "Ghi_Chu_Doi_Soat": st.column_config.TextColumn("Trạng thái", width="medium"),
-            "Ten_KTV_Clean": st.column_config.TextColumn("Thợ phụ trách", width="large")
-        }
-        st.dataframe(df_sc_summary_grouped[cols_sc_valid], use_container_width=True, height=540, hide_index=True, column_config=cfg_sc)
+            cols_sc_show = ['Số R/O hãng', 'Số R/O', 'Ngày C.từ', 'Số hóa đơn', 'Tien_5114', 'Tien_KTV', 'Chenh_Lech', 'Ghi_Chu_Doi_Soat', 'Ten_KTV_Clean']
+            cols_sc_valid = [c for c in cols_sc_show if c in df_sc_summary_grouped.columns]
+            
+            cfg_sc = {
+                "Số R/O hãng": st.column_config.TextColumn("Số RO hãng", width="medium"),
+                "Số R/O": st.column_config.TextColumn("Số RO nội bộ", width="medium"),
+                "Ngày C.từ": st.column_config.TextColumn("Ngày xuất HĐ", width="small"),
+                "Số hóa đơn": st.column_config.TextColumn("Số HĐ", width="small"),
+                "Tien_5114": st.column_config.NumberColumn("Tiền 5114", format="%,d đ", width="medium"),
+                "Tien_KTV": st.column_config.NumberColumn("Tổng Tiền KTV", format="%,d đ", width="medium"),
+                "Chenh_Lech": st.column_config.NumberColumn("Chênh lệch", format="%,d đ", width="small"),
+                "Ghi_Chu_Doi_Soat": st.column_config.TextColumn("Trạng thái", width="medium"),
+                "Ten_KTV_Clean": st.column_config.TextColumn("Thợ phụ trách", width="large")
+            }
+            st.dataframe(df_sc_summary_grouped[cols_sc_valid], use_container_width=True, height=540, hide_index=True, column_config=cfg_sc)
 
     # ==================== TAB 2: SHEET CHI TIẾT KTV (CHỈNH SỬA & BÁO ĐỘNG) ====================
     with tab_split_ktv:
         st.subheader("👷 Chi Tiết Phân Bổ Tiền Công Cho KTV & Điều Chỉnh Trực Tiếp")
-        st.info("💡 **Quy tắc phân bổ:** Giảm giá Sơn trừ vào thợ Sơn. Giảm giá Gò trừ vào thợ Gò. Bạn có thể **chỉnh trực tiếp con số của KTV tại cột 👉 TIỀN BẠN CHỐT CHO KTV**; hệ thống sẽ tự động cập nhật trạng thái Khớp ngay lập tức!")
+        st.info("💡 **Quy tắc phân bổ chuẩn:** Không trừ MTBH vào công thợ. Bạn có thể **chỉnh trực tiếp con số của KTV tại cột 👉 TIỀN BẠN CHỐT CHO KTV**; hệ thống sẽ tự động cập nhật trạng thái Khớp ngay lập tức!")
 
         s_m1, s_m2, s_m3 = st.columns(3)
         s_m1.metric("Tổng Tiền Công KTV", f"{df_ktv_split_master['Tien_Chot_KTV'].sum():,.0f} đ")
@@ -567,7 +579,7 @@ if not df_ktv_split_master.empty:
             "Noi_Dung_CV": st.column_config.TextColumn("Nội dung công việc", disabled=True, width="large"),
             "Ma_KTV": st.column_config.TextColumn("Mã KTV", disabled=True, width="small"),
             "Ten_KTV": st.column_config.TextColumn("Họ tên KTV", width="medium"),
-            "Tien_Thuc_Nhan": st.column_config.NumberColumn("Tiền KTV theo HĐ (Đã trừ giảm giá)", format="%,d đ", disabled=True, width="medium"),
+            "Tien_Thuc_Nhan": st.column_config.NumberColumn("Tiền theo HĐ (Sau giảm giá)", format="%,d đ", disabled=True, width="medium"),
             "Tien_Chot_KTV": st.column_config.NumberColumn(
                 "👉 TIỀN BẠN CHỐT CHO KTV (Sửa được)",
                 format="%,d đ",
@@ -585,7 +597,7 @@ if not df_ktv_split_master.empty:
             height=560,
             column_config=cfg_detail_editor,
             hide_index=True,
-            key="editor_ktv_detail_v9"
+            key="editor_ktv_detail_v10"
         )
 
         c_btn1, c_btn2 = st.columns([4, 6])
