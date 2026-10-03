@@ -82,7 +82,6 @@ def doc_file_excel_chung(file_obj, tu_khoa=['số ro', 'mã ktv', 'lệnh sửa 
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-# HÀM BÓC TÁCH BẢO HÀNH CHUẨN XÁC: CHỈ LẤY DỊCH VỤ, LOẠI BỎ TRIỆT ĐỂ PHỤ TÙNG
 def doc_du_lieu_bao_hanh_thong_minh(file_obj):
     xls = pd.ExcelFile(file_obj)
     target_sheet = xls.sheet_names[0]
@@ -101,16 +100,13 @@ def doc_du_lieu_bao_hanh_thong_minh(file_obj):
     df_raw.columns = [str(c).strip() for c in df_raw.columns]
     df_out = df_raw.copy()
 
-    # 1. Nếu có cột Loại sản phẩm / Loại công việc / Material3 -> BẮT BUỘC CHỈ LẤY 'DỊCH VỤ'
     col_type = next((c for c in df_out.columns if any(k in c.lower() for k in ['loại sản phẩm', 'loại công việc', 'material3', 'product type'])), None)
     if col_type:
         mask_dv = df_out[col_type].astype(str).str.lower().str.contains('dịch vụ|service|nhân công')
         df_out = df_out[mask_dv].copy()
 
-    # 2. Tìm cột mã lệnh WO
     col_wo = next((c for c in df_out.columns if any(k in c.lower() for k in ['lệnh sửa chữa', 'lsc', 'wo'])), df_out.columns[0])
 
-    # 3. Tìm cột tiền công dịch vụ (Ưu tiên cột Tiền công, tránh cột Tổng số tiền nếu chưa lọc)
     col_cong = next((c for c in df_out.columns if any(k in c.lower() for k in ['approved service', 'tiền công yêu cầu', 'tiền công', 'tiền dịch vụ', 'giá nhân công'])), None)
     if not col_cong:
         col_cong = next((c for c in df_out.columns if any(k in c.lower() for k in ['tổng số tiền', 'amount', 'thành tiền', 'tiền'])), df_out.columns[-1])
@@ -297,7 +293,7 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
         col_5114_dg: lambda x: " | ".join(sorted(set([str(v) for v in x if pd.notna(v)])))[:200] if col_5114_dg in df_5114_valid.columns else lambda x: ''
     }).reset_index().rename(columns={'Tien_Dau_Vao': 'Tien_5114'})
 
-    # Xử lý Bảo Hành (Lọc sạch sẽ chỉ lấy Dịch vụ)
+    # Xử lý Bảo Hành
     bh_wo_set = set()
     df_bh_split = pd.DataFrame()
 
@@ -314,7 +310,7 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
 
         df_ktv_bh_rows = df_ktv_for_bh[df_ktv_for_bh['key_match'].isin(bh_wo_sum['wo_norm']) & (df_ktv_for_bh['Ma_KTV_Clean'] != '')].copy()
         if df_ktv_bh_rows.empty:
-            df_ktv_bh_rows = df_ktv_works_all[df_ktv_works_all['key_match'].isin(bh_wo_sum['wo_norm'])].copy()
+            df_ktv_bh_rows = df_ktv_valid_works[df_ktv_valid_works['key_match'].isin(bh_wo_sum['wo_norm'])].copy()
 
         ktv_cnt_bh = df_ktv_bh_rows.groupby('key_match')['Ma_KTV_Clean'].nunique().to_dict()
         df_ktv_bh_rows['So_KTV_Lam_Chung'] = df_ktv_bh_rows['key_match'].map(ktv_cnt_bh).fillna(1)
@@ -475,7 +471,6 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
     df_ktv_split_master = pd.DataFrame(ktv_details_temp)
     df_ktv_split_master = bao_ve_cot_ktv_detail(df_ktv_split_master)
 
-    # Khôi phục các dòng đã sửa tay lưu trên Google Sheets
     if not df_saved_gs.empty and 'key_match' in df_saved_gs.columns and 'Tien_Chot_KTV' in df_saved_gs.columns:
         map_chot_tay = df_saved_gs.set_index(['key_match', 'Ma_KTV', 'Noi_Dung_CV'])['Tien_Chot_KTV'].to_dict()
         for idx_r, r_val in df_ktv_split_master.iterrows():
@@ -631,7 +626,7 @@ if not df_ktv_split_master.empty:
             height=560,
             column_config=cfg_detail_editor,
             hide_index=True,
-            key="editor_ktv_detail_v12"
+            key="editor_ktv_detail_v13"
         )
 
         c_btn1, c_btn2 = st.columns([4, 6])
@@ -669,7 +664,7 @@ if not df_ktv_split_master.empty:
             b_m3.metric("Số Lượt Chia Công KTV", f"{len(df_bh_split)} lượt công")
 
             col_bh_wo_show = 'col_wo_goc' if 'col_wo_goc' in df_bh_split.columns else 'wo_norm'
-            col_bh_cv_show = 'Ten_CV_BH' if 'Ten_CV_BH' in df_bh_split.columns else df_bh_view.columns[0]
+            col_bh_cv_show = 'Ten_CV_BH' if 'Ten_CV_BH' in df_bh_split.columns else df_bh_split.columns[0]
 
             cfg_bh_split = {
                 col_bh_wo_show: st.column_config.TextColumn("Lệnh Bảo Hành (WO)", width="medium"),
