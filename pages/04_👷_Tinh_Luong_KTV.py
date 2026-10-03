@@ -82,17 +82,12 @@ def doc_file_excel_chung(file_obj, tu_khoa=['số ro', 'mã ktv', 'lệnh sửa 
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
+# HÀM BÓC TÁCH BẢO HÀNH CHUẨN XÁC: TỰ ĐỘNG PHÂN BIỆT FILE CRM VÀ FILE BẢNG KÊ WCS
 def doc_du_lieu_bao_hanh_thong_minh(file_obj):
     xls = pd.ExcelFile(file_obj)
     target_sheet = xls.sheet_names[0]
     for s in xls.sheet_names:
-        if 'chi tiết' in s.lower() and 'đối soát' in s.lower():
-            target_sheet = s
-            break
-        elif 'bảng đối soát' in s.lower():
-            target_sheet = s
-            break
-        elif 'claim' in s.lower() or 'active' in s.lower():
+        if any(k in s.lower() for k in ['chi tiết', 'đối soát', 'claim', 'active']):
             target_sheet = s
             break
             
@@ -100,30 +95,34 @@ def doc_du_lieu_bao_hanh_thong_minh(file_obj):
     df_raw.columns = [str(c).strip() for c in df_raw.columns]
     df_out = df_raw.copy()
 
-    col_type = next((c for c in df_out.columns if any(k in c.lower() for k in ['loại sản phẩm', 'loại công việc', 'material3', 'product type'])), None)
-    if col_type:
-        mask_dv = df_out[col_type].astype(str).str.lower().str.contains('dịch vụ|service|nhân công')
+    # Nhận diện dạng Bảng kê đối soát WCS có cột Loại sản phẩm chứa 'Dịch vụ' / 'Phụ tùng'
+    col_loai_sp = next((c for c in df_out.columns if any(k in c.lower() for k in ['loại sản phẩm', 'material3'])), None)
+    if col_loai_sp and df_out[col_loai_sp].dropna().astype(str).str.lower().str.contains('dịch vụ|service').any():
+        mask_dv = df_out[col_loai_sp].astype(str).str.lower().str.contains('dịch vụ|service')
         df_out = df_out[mask_dv].copy()
-
-    col_wo = next((c for c in df_out.columns if any(k in c.lower() for k in ['lệnh sửa chữa', 'lsc', 'wo'])), df_out.columns[0])
-
-    col_cong = next((c for c in df_out.columns if any(k in c.lower() for k in ['approved service', 'tiền công yêu cầu', 'tiền công', 'tiền dịch vụ', 'giá nhân công'])), None)
-    if not col_cong:
-        col_cong = next((c for c in df_out.columns if any(k in c.lower() for k in ['tổng số tiền', 'amount', 'thành tiền', 'tiền'])), df_out.columns[-1])
-
-    col_cv = next((c for c in df_out.columns if any(k in c.lower() for k in ['tên công việc chính', 'công việc chính', 'mô tả', 'tên dịch vụ', 'material2'])), df_out.columns[0])
-    col_ngay = next((c for c in df_out.columns if 'ngày' in c.lower() and ('phê duyệt' in c.lower() or 'đxbh' in c.lower() or 'wc- approved' in c.lower())), None)
+        col_wo = next((c for c in df_out.columns if any(k in c.lower() for k in ['lệnh sửa chữa', 'lsc', 'wo'])), df_out.columns[0])
+        col_cong = next((c for c in df_out.columns if any(k in c.lower() for k in ['tổng số tiền', 'amount', 'thành tiền', 'tiền công', 'tiền'])), df_out.columns[-1])
+        col_cv = next((c for c in df_out.columns if any(k in c.lower() for k in ['mô tả', 'công việc', 'material2', 'material1'])), df_out.columns[0])
+        col_ngay = next((c for c in df_out.columns if 'ngày' in c.lower() and ('phê duyệt' in c.lower() or 'approved' in c.lower())), None)
+    else:
+        # Dạng file Active Warranty claim từ CRM (như file Warran...-05 AM.xlsx)
+        col_wo = next((c for c in df_out.columns if any(k in c.lower() for k in ['lệnh sửa chữa', 'lsc', 'wo'])), df_out.columns[0])
+        col_cong = next((c for c in df_out.columns if any(k in c.lower() for k in ['approved service', 'tiền công yêu cầu'])), None)
+        if not col_cong:
+            col_cong = next((c for c in df_out.columns if 'tiền công' in c.lower()), df_out.columns[-1])
+        col_cv = next((c for c in df_out.columns if any(k in c.lower() for k in ['tên công việc chính', 'công việc chính', 'mô tả'])), df_out.columns[0])
+        col_ngay = next((c for c in df_out.columns if 'ngày' in c.lower() and ('phê duyệt' in c.lower() or 'đxbh' in c.lower())), None)
 
     df_out['wo_norm'] = df_out[col_wo].apply(norm_wo_key)
     df_out['Tien_Cong_BH'] = df_out[col_cong].apply(clean_num)
     df_out['Ten_CV_BH'] = df_out[col_cv].fillna('').astype(str) if col_cv else ''
+    df_out['col_wo_goc'] = df_out[col_wo]
     
     if col_ngay and col_ngay in df_out.columns:
         df_out['Thang_BH'] = pd.to_datetime(df_out[col_ngay], errors='coerce', dayfirst=True).dt.strftime('Tháng %m/%Y').fillna('Chưa rõ')
     else:
         df_out['Thang_BH'] = 'Toàn bộ kỳ'
-        
-    df_out['col_wo_goc'] = df_out[col_wo]
+
     return df_out[(df_out['Tien_Cong_BH'] > 0) & (df_out['wo_norm'] != '')].copy()
 
 def trich_xuat_ktv_dataframe(df_source):
@@ -538,6 +537,47 @@ else:
     df_sc_summary_grouped = pd.DataFrame()
     df_bh_split = pd.DataFrame()
 
+# NẾU CÓ NẠP FILE BẢO HÀNH RIÊNG THÌ LUÔN LUÔN XỬ LÝ VÀ HIỂN THỊ
+if up_bh and df_bh_split.empty:
+    try:
+        df_bh_serv_direct = doc_du_lieu_bao_hanh_thong_minh(up_bh)
+        bh_wo_sum_dir = df_bh_serv_direct.groupby('wo_norm').agg({
+            'col_wo_goc': 'first',
+            'Tien_Cong_BH': 'sum',
+            'Thang_BH': 'first',
+            'Ten_CV_BH': lambda x: " | ".join(sorted(set([str(v) for v in x if pd.notna(v)])))[:150]
+        }).reset_index()
+
+        df_ktv_source_bh = df_ktv_valid_works if 'df_ktv_valid_works' in locals() and not df_ktv_valid_works.empty else pd.DataFrame()
+
+        if not df_ktv_source_bh.empty:
+            df_ktv_bh_rows_dir = df_ktv_source_bh[df_ktv_source_bh['key_match'].isin(bh_wo_sum_dir['wo_norm']) & (df_ktv_source_bh['Ma_KTV_Clean'] != '')].copy()
+            ktv_cnt_bh_dir = df_ktv_bh_rows_dir.groupby('key_match')['Ma_KTV_Clean'].nunique().to_dict()
+            df_ktv_bh_rows_dir['So_KTV_Lam_Chung'] = df_ktv_bh_rows_dir['key_match'].map(ktv_cnt_bh_dir).fillna(1)
+            df_ktv_bh_rows_dir.loc[df_ktv_bh_rows_dir['So_KTV_Lam_Chung'] == 0, 'So_KTV_Lam_Chung'] = 1
+
+            df_bh_split = pd.merge(
+                df_ktv_bh_rows_dir[['key_match', 'So_RO_Val', 'Bien_So_Val', 'Ma_KTV_Clean', 'Ten_KTV_Clean', 'So_KTV_Lam_Chung']].drop_duplicates(subset=['key_match', 'Ma_KTV_Clean']),
+                bh_wo_sum_dir,
+                left_on='key_match',
+                right_on='wo_norm',
+                how='right'
+            )
+        else:
+            df_bh_split = bh_wo_sum_dir.copy()
+            df_bh_split['key_match'] = df_bh_split['wo_norm']
+            df_bh_split['So_RO_Val'] = df_bh_split['col_wo_goc']
+            df_bh_split['Bien_So_Val'] = ''
+            df_bh_split['Ma_KTV_Clean'] = 'Chưa nạp KTV'
+            df_bh_split['Ten_KTV_Clean'] = 'Chưa nạp KTV'
+            df_bh_split['So_KTV_Lam_Chung'] = 1
+
+        df_bh_split['So_KTV_Lam_Chung'] = df_bh_split['So_KTV_Lam_Chung'].fillna(1)
+        df_bh_split['Cong_BH_Thuc_Nhan'] = df_bh_split['Tien_Cong_BH'] / df_bh_split['So_KTV_Lam_Chung']
+        st.session_state['df_bh_split_cache'] = df_bh_split
+    except Exception as e_bh:
+        st.warning(f"Đang phân tích file bảo hành: {e_bh}")
+
 if not df_ktv_split_master.empty:
     df_ktv_split_master = bao_ve_cot_ktv_detail(df_ktv_split_master)
     
@@ -626,7 +666,7 @@ if not df_ktv_split_master.empty:
             height=560,
             column_config=cfg_detail_editor,
             hide_index=True,
-            key="editor_ktv_detail_v13"
+            key="editor_ktv_detail_v14"
         )
 
         c_btn1, c_btn2 = st.columns([4, 6])
@@ -694,8 +734,9 @@ if not df_ktv_split_master.empty:
         else:
             df_sc_sum = pd.DataFrame(columns=['Ma_KTV', 'Ten_KTV', 'Cong_SC'])
 
-        if not df_bh_split.empty:
-            df_bh_sum = df_bh_split.groupby(['Ma_KTV_Clean', 'Ten_KTV_Clean'])['Cong_BH_Thuc_Nhan'].sum().reset_index().rename(
+        if not df_bh_split.empty and 'Ma_KTV_Clean' in df_bh_split.columns:
+            mask_bh_valid = ~df_bh_split['Ma_KTV_Clean'].astype(str).str.contains('Chưa xác định|Chưa nạp KTV|None')
+            df_bh_sum = df_bh_split[mask_bh_valid].groupby(['Ma_KTV_Clean', 'Ten_KTV_Clean'])['Cong_BH_Thuc_Nhan'].sum().reset_index().rename(
                 columns={'Ma_KTV_Clean': 'Ma_KTV', 'Ten_KTV_Clean': 'Ten_KTV', 'Cong_BH_Thuc_Nhan': 'Cong_BH'}
             )
         else:
