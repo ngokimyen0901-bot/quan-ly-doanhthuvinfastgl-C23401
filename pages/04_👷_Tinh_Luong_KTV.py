@@ -4,7 +4,7 @@ import numpy as np
 import io
 import re
 
-# Bỏ qua st.set_page_config nếu là file con trong thư mục pages/
+# Bọc an toàn set_page_config cho ứng dụng đa trang
 try:
     st.set_page_config(
         page_title="Tính Lương & Đối Soát Công KTV",
@@ -17,7 +17,7 @@ except Exception:
 st.title("👷 Hệ Thống Tính Lương & Đối Soát Công Kỹ Thuật Viên")
 st.caption("☁️ Quản lý đa kỳ lương | Tự động lưu trữ lịch sử hàng tháng | Lưu trữ: **Luong_KTV**.")
 
-# Khởi tạo kết nối Google Sheets an toàn, tránh treo trang
+# Khởi tạo kết nối Google Sheets an toàn, tránh treo app
 @st.cache_resource(ttl=3600)
 def get_gsheet_connection():
     try:
@@ -63,6 +63,8 @@ def doc_file_5114_chuan(file_obj):
     return df
 
 def doc_file_excel_chung(file_obj, tu_khoa=['số ro', 'mã ktv', 'lệnh sửa chữa', 'wo']):
+    if file_obj is None:
+        return pd.DataFrame()
     if file_obj.name.lower().endswith('.csv'):
         df = pd.read_csv(file_obj, low_memory=False)
         df.columns = [str(c).strip() for c in df.columns]
@@ -121,6 +123,8 @@ def doc_du_lieu_bao_hanh_thong_minh(file_obj, ky_mac_dinh='Tháng 09/2026'):
     return df_out[(df_out['Tien_Cong_BH'] > 0) & (df_out['wo_norm'] != '')].copy()
 
 def trich_xuat_ktv_dataframe(df_source):
+    if df_source is None or df_source.empty:
+        return pd.DataFrame()
     df_res = df_source.copy()
     col_ro_h = next((c for c in df_res.columns if 'số ro hãng' in c.lower() or 'ro hãng' in c.lower() or 'số lệnh sửa chữa' in c.lower()), None)
     col_ro_nb = next((c for c in df_res.columns if c.strip().lower() in ['số ro', 'ro']), None)
@@ -187,7 +191,6 @@ def bao_ve_cot_ktv_detail(df):
                 df_out[col] = default_val
     return df_out
 
-# Đọc Google Sheets với thời gian chờ giới hạn để tránh trắng trang
 def load_saved_luong():
     if conn is None:
         return pd.DataFrame()
@@ -202,11 +205,11 @@ def load_saved_luong():
 
 df_saved_gs = load_saved_luong()
 
-# KHUNG NẠP TỆP DỮ LIỆU LUÔN HIỂN THỊ
+# KHUNG NẠP DỮ LIỆU
 with st.expander("📥 Nạp Tệp Dữ Liệu Tính Lương Mới", expanded=df_saved_gs.empty):
     c1, c2, c3 = st.columns(3)
     with c1:
-        up_5114 = st.file_uploader("1. Sổ chi tiết TK 5114 hoặc Master DMS VinFast:", type=['xlsx', 'xls', 'csv'], key="p4_5114")
+        up_5114 = st.file_uploader("1. Sổ chi tiết TK 5114 hoặc Master DMS:", type=['xlsx', 'xls', 'csv'], key="p4_5114")
     with c2:
         up_ktv_hd = st.file_uploader("2. Báo cáo KTV (THEO HÓA ĐƠN - Sửa chữa):", type=['xlsx', 'xls', 'csv'], key="p4_ktv_hd")
     with c3:
@@ -214,11 +217,11 @@ with st.expander("📥 Nạp Tệp Dữ Liệu Tính Lương Mới", expanded=df
 
     c4, c5 = st.columns(2)
     with c4:
-        up_bh = st.file_uploader("4. Chi tiết bảo hành (Active Claim / Bảng Kê WCS...xlsx):", type=['xlsx', 'xls'], key="p4_bh")
+        up_bh = st.file_uploader("4. Chi tiết bảo hành (Active Claim / Bảng Kê WCS):", type=['xlsx', 'xls'], key="p4_bh")
     with c5:
         up_pdi = st.file_uploader("5. Danh sách lệnh PDI (Tùy chọn):", type=['xlsx', 'xls', 'csv'], key="p4_pdi")
 
-# Xử lý tính toán khi nạp file mới
+# Xử lý tính toán khi nạp file
 if up_5114 and (up_ktv_hd or up_ktv_lenh):
     df_5114 = doc_file_5114_chuan(up_5114)
     df_ktv_hd_parsed = trich_xuat_ktv_dataframe(doc_file_excel_chung(up_ktv_hd)) if up_ktv_hd else pd.DataFrame()
@@ -337,55 +340,130 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
     df_ktv_split_master = bao_ve_cot_ktv_detail(df_ktv_split_master)
     st.session_state['df_ktv_split_master'] = df_ktv_split_master
 
-    # Xử lý bảo hành độc lập nếu có
+    # Xử lý bảo hành đối soát chuẩn xác
     if up_bh:
-        df_bh_serv = doc_du_lieu_bao_hanh_thong_minh(up_bh)
+        df_bh_serv = doc_du_lieu_bao_hanh_thong_minh(up_bh, ky_mac_dinh='Tháng 09/2026')
+        
+        # 1. Gom tổng tiền Nhà Máy duyệt theo từng Lệnh duy nhất
         bh_wo_sum = df_bh_serv.groupby('wo_norm').agg({
             'Tien_Cong_BH': 'sum',
             'Thang_BH': 'first',
-            'Ten_CV_BH': lambda x: " | ".join(sorted(set([str(v) for v in x if pd.notna(v)])))[:150]
+            'Ten_CV_BH': lambda x: " | ".join(sorted(set([str(v) for v in x if pd.notna(v) and str(v).strip() != ''])))[:150]
         }).reset_index().rename(columns={'Tien_Cong_BH': 'Tien_Nha_May_Duyet'})
 
+        # 2. Lọc KTV làm bảo hành (chỉ lấy KTV có tiền theo lệnh > 0, loại bỏ thợ làm bảo dưỡng ăn theo HĐ)
         df_ktv_bh_chuan = df_ktv_for_bh[
             (df_ktv_for_bh['key_match'].isin(bh_wo_sum['wo_norm'])) & 
             (df_ktv_for_bh['Ma_KTV_Clean'] != '') & 
             (df_ktv_for_bh['Tien_KTV_Theo_Lenh'] > 0)
         ].copy()
 
+        # Ưu tiên các dòng bảo hành / phần mềm
+        mask_bh_task = df_ktv_bh_chuan['Hang_Muc_Val'].str.lower().str.contains('bảo hành|bh|cập nhật') | \
+                       df_ktv_bh_chuan['Noi_Dung_Val'].str.lower().str.contains('cập nhật|bảo hành|thay thế|frs')
+        if mask_bh_task.any():
+            df_ktv_bh_chuan = df_ktv_bh_chuan[mask_bh_task].copy()
+
         ktv_bh_tot_map = df_ktv_bh_chuan.groupby('key_match')['Tien_KTV_Theo_Lenh'].sum().to_dict()
-        ktv_names_bh_map = df_ktv_bh_chuan.groupby('key_match')['Ten_KTV_Clean'].apply(lambda x: ", ".join(sorted(set(str(v).strip() for v in x if pd.notna(v))))).to_dict()
+        
+        def gom_ktv(sub_df):
+            names = []
+            for _, r in sub_df.drop_duplicates(subset=['Ma_KTV_Clean']).iterrows():
+                names.append(str(r['Ten_KTV_Clean'] if r['Ten_KTV_Clean'] else r['Ma_KTV_Clean']).strip())
+            return ", ".join(names) if names else "Chưa gán thợ BH"
+
+        ktv_names_bh_map = df_ktv_bh_chuan.groupby('key_match').apply(gom_ktv).to_dict()
         bs_bh_map = df_ktv_bh_chuan.groupby('key_match')['Bien_So_Val'].first().to_dict()
         ro_bh_map = df_ktv_bh_chuan.groupby('key_match')['So_RO_Val'].first().to_dict()
 
+        # 3. Tạo bảng đối soát 1 Lệnh = 1 Dòng
         df_bh_split = bh_wo_sum.copy()
         df_bh_split['So_RO'] = df_bh_split['wo_norm'].map(ro_bh_map).fillna(df_bh_split['wo_norm'])
         df_bh_split['Bien_So'] = df_bh_split['wo_norm'].map(bs_bh_map).fillna('')
         df_bh_split['KTV_Bao_Hanh'] = df_bh_split['wo_norm'].map(ktv_names_bh_map).fillna('Chưa gán thợ BH')
         df_bh_split['Tien_KTV_He_Thong'] = df_bh_split['wo_norm'].map(ktv_bh_tot_map).fillna(0.0)
         df_bh_split['Chenh_Lech_Duyet'] = df_bh_split['Tien_Nha_May_Duyet'] - df_bh_split['Tien_KTV_He_Thong']
-        df_bh_split['Trang_Thai_Duyet'] = np.where(abs(df_bh_split['Chenh_Lech_Duyet']) < 1000, "🟢 Khớp duyệt nhà máy", "🔴 Lệch duyệt")
+        
+        def check_status(r):
+            if r['KTV_Bao_Hanh'] == 'Chưa gán thợ BH':
+                return "🟡 CHƯA CÓ KTV BẢO HÀNH"
+            if abs(r['Chenh_Lech_Duyet']) < 1000:
+                return "🟢 Khớp duyệt nhà máy"
+            return f"🔴 LỆCH DUYỆT (Lệch: {r['Chenh_Lech_Duyet']:,.0f} đ)"
+
+        df_bh_split['Trang_Thai_Duyet'] = df_bh_split.apply(check_status, axis=1)
 
         cols_bh = ['Thang_BH', 'So_RO', 'Bien_So', 'Ten_CV_BH', 'KTV_Bao_Hanh', 'Tien_Nha_May_Duyet', 'Tien_KTV_He_Thong', 'Chenh_Lech_Duyet', 'Trang_Thai_Duyet']
         st.session_state['df_bh_split_cache'] = df_bh_split[[c for c in cols_bh if c in df_bh_split.columns]]
 
-# Nạp dữ liệu hiển thị
+# Nạp dữ liệu hiển thị từ Cache hoặc Google Sheets
 df_ktv_split_master = st.session_state.get('df_ktv_split_master', df_saved_gs)
 df_bh_split = st.session_state.get('df_bh_split_cache', pd.DataFrame())
 
 if not df_ktv_split_master.empty:
     df_ktv_split_master = bao_ve_cot_ktv_detail(df_ktv_split_master)
-    tab1, tab2, tab3 = st.tabs(["🔧 Đối Soát Chi Tiết", "🛡️ Đối Soát Bảo Hành Hãng", "💰 Tổng Hợp Lương KTV"])
+    
+    st.markdown("---")
+    danh_sach_ky = sorted(list(set([str(m) for m in df_ktv_split_master['Ky_Luong'].unique() if str(m) not in ['', 'nan', 'None']])))
+    if not danh_sach_ky:
+        danh_sach_ky = ['Tháng 09/2026']
+
+    sel_ky = st.selectbox("📅 CHỌN KỲ LƯƠNG ĐỐI SOÁT:", ["Tất cả các kỳ lương"] + danh_sach_ky, index=1 if len(danh_sach_ky) > 0 else 0)
+
+    df_active = df_ktv_split_master.copy()
+    if sel_ky != "Tất cả các kỳ lương":
+        df_active = df_active[df_active['Ky_Luong'] == sel_ky]
+
+    tab1, tab2, tab3 = st.tabs(["🔧 1. Chi Tiết Lương KTV", "🛡️ 2. Đối Soát Bảo Hành Hãng", "💰 3. Bảng Tổng Hợp Lương KTV"])
     
     with tab1:
-        st.dataframe(df_ktv_split_master, use_container_width=True, height=500, hide_index=True)
+        st.subheader(f"🔧 Chi Tiết Công Việc KTV ({sel_ky})")
+        cols_t1 = ['So_RO', 'Bien_So', 'So_HD', 'Ngay_Xuat_HD', 'Hang_Muc', 'Noi_Dung_CV', 'Ma_KTV', 'Ten_KTV', 'Tien_Chot_KTV', 'Trang_Thai_Khop']
+        cols_t1_v = [c for c in cols_t1 if c in df_active.columns]
+        st.dataframe(df_active[cols_t1_v], use_container_width=True, height=520, hide_index=True)
+
     with tab2:
+        st.subheader(f"🛡️ Đối Soát Bảo Hành Hãng (1 Lệnh / 1 Dòng Duy Nhất)")
         if not df_bh_split.empty:
-            st.dataframe(df_bh_split, use_container_width=True, height=500, hide_index=True)
+            cfg_bh = {
+                "Thang_BH": st.column_config.TextColumn("Kỳ Bảo Hành", width="small"),
+                "So_RO": st.column_config.TextColumn("Số LSC / RO", width="medium"),
+                "Bien_So": st.column_config.TextColumn("Biển Số", width="small"),
+                "Ten_CV_BH": st.column_config.TextColumn("Nội Dung Công Việc", width="large"),
+                "KTV_Bao_Hanh": st.column_config.TextColumn("KTV Bảo Hành", width="medium"),
+                "Tien_Nha_May_Duyet": st.column_config.NumberColumn("Nhà Máy Duyệt", format="%,d đ"),
+                "Tien_KTV_He_Thong": st.column_config.NumberColumn("KTV Nhận", format="%,d đ"),
+                "Chenh_Lech_Duyet": st.column_config.NumberColumn("Chênh Lệch", format="%,d đ"),
+                "Trang_Thai_Duyet": st.column_config.TextColumn("Trạng Thái Duyệt", width="medium")
+            }
+            st.dataframe(df_bh_split, column_config=cfg_bh, use_container_width=True, height=520, hide_index=True)
         else:
-            st.info("Chưa có dữ liệu bảng bảo hành hãng.")
+            st.info("Chưa nạp tệp chi tiết bảo hành (Active Claim / Bảng Kê WCS).")
+
     with tab3:
-        df_real = df_ktv_split_master[~df_ktv_split_master['Ma_KTV'].str.contains('🚨|Chưa xác định')]
+        st.subheader(f"💰 Bảng Tổng Hợp Lương Theo Kỹ Thuật Viên ({sel_ky})")
+        
+        # Xử lý triệt để NaN, tránh hoàn toàn TypeError
+        s_ma = df_active['Ma_KTV'].fillna('').astype(str)
+        mask_hop_le = (~s_ma.str.contains('🚨|Chưa xác định|Khoản mục riêng|Bảo hành hãng', regex=True)) & (s_ma.str.strip() != '')
+        df_real = df_active[mask_hop_le].copy()
+
         if not df_real.empty:
-            st.dataframe(df_real.groupby(['Ma_KTV', 'Ten_KTV'])['Tien_Chot_KTV'].sum().reset_index(), use_container_width=True)
+            df_real['Tien_Chot_KTV'] = pd.to_numeric(df_real['Tien_Chot_KTV'], errors='coerce').fillna(0.0)
+            
+            sum_ktv = df_real.groupby(['Ma_KTV', 'Ten_KTV'])['Tien_Chot_KTV'].agg(
+                Tong_Cong='sum',
+                So_Viec='count'
+            ).reset_index()
+            
+            sum_ktv.columns = ['Mã KTV', 'Tên Kỹ Thuật Viên', 'Tổng Tiền Công (VNĐ)', 'Số Lượng Việc']
+            
+            cfg_sum = {
+                "Tổng Tiền Công (VNĐ)": st.column_config.NumberColumn("Tổng Tiền Công", format="%,d đ"),
+                "Số Lượng Việc": st.column_config.NumberColumn("Số Công Việc", format="%,d"),
+            }
+            st.dataframe(sum_ktv, column_config=cfg_sum, use_container_width=True, hide_index=True)
+        else:
+            st.info("Chưa có dữ liệu KTV hợp lệ để tổng hợp.")
 else:
-    st.info("💡 Hãy tải lên các tệp dữ liệu ở khung phía trên để bắt đầu đối soát và tính lương.")
+    st.info("💡 Vui lòng tải các tệp dữ liệu lên khung phía trên để bắt đầu tính toán và đối soát.")
