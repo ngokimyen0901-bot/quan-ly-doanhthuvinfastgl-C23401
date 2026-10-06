@@ -572,3 +572,142 @@ else:
 
 # Nạp file bảo hành độc lập nếu có
 if up_bh and df_bh_split.empty:
+    try:
+        df_bh_serv_direct = doc_du_lieu_bao_hanh_thong_minh(up_bh)
+        bh_wo_sum_dir = df_bh_serv_direct.groupby('wo_norm').agg({
+            'col_wo_goc': 'first',
+            'Tien_Cong_BH': 'sum',
+            'Thang_BH': 'first',
+            'Ten_CV_BH': lambda x: " | ".join(sorted(set([str(v) for v in x if pd.notna(v)])))[:150]
+        }).reset_index().rename(columns={'Tien_Cong_BH': 'Tien_Nha_May_Duyet'})
+
+        df_ktv_source_bh = df_ktv_valid_works if 'df_ktv_valid_works' in locals() and not df_ktv_valid_works.empty else pd.DataFrame()
+
+        if not df_ktv_source_bh.empty:
+            df_ktv_bh_rows_dir = df_ktv_source_bh[df_ktv_source_bh['key_match'].isin(bh_wo_sum_dir['wo_norm']) & (df_ktv_source_bh['Ma_KTV_Clean'] != '')].copy()
+            ktv_bh_tot_map_dir = df_ktv_bh_rows_dir.groupby('key_match')['Tien_KTV_Theo_Lenh'].sum().to_dict()
+            ktv_cnt_bh_dir = df_ktv_bh_rows_dir.groupby('key_match')['Ma_KTV_Clean'].nunique().to_dict()
+            
+            df_ktv_bh_rows_dir['So_KTV_Lam_Chung'] = df_ktv_bh_rows_dir['key_match'].map(ktv_cnt_bh_dir).fillna(1)
+            df_ktv_bh_rows_dir.loc[df_ktv_bh_rows_dir['So_KTV_Lam_Chung'] == 0, 'So_KTV_Lam_Chung'] = 1
+
+            df_bh_split = pd.merge(
+                df_ktv_bh_rows_dir[['key_match', 'So_RO_Val', 'Bien_So_Val', 'Ma_KTV_Clean', 'Ten_KTV_Clean', 'So_KTV_Lam_Chung']].drop_duplicates(subset=['key_match', 'Ma_KTV_Clean']),
+                bh_wo_sum_dir,
+                left_on='key_match',
+                right_on='wo_norm',
+                how='right'
+            )
+            df_bh_split['Tien_KTV_He_Thong'] = df_bh_split['wo_norm'].map(ktv_bh_tot_map_dir).fillna(0.0)
+        else:
+            df_bh_split = bh_wo_sum_dir.copy()
+            df_bh_split['key_match'] = df_bh_split['wo_norm']
+            df_bh_split['So_RO_Val'] = df_bh_split['col_wo_goc']
+            df_bh_split['Bien_So_Val'] = ''
+            df_bh_split['Ma_KTV_Clean'] = np.nan
+            df_bh_split['Ten_KTV_Clean'] = np.nan
+            df_bh_split['So_KTV_Lam_Chung'] = 1
+            df_bh_split['Tien_KTV_He_Thong'] = 0.0
+
+        df_bh_split['Chenh_Lech_Duyet'] = df_bh_split['Tien_Nha_May_Duyet'] - df_bh_split['Tien_KTV_He_Thong']
+
+        def xac_dinh_canh_bao_bh_dir(r):
+            if pd.isna(r['Ma_KTV_Clean']) or str(r['Ma_KTV_Clean']).strip() in ['', 'None', 'nan']:
+                return "🟡 CHƯA CÓ KTV TRÊN LỆNH"
+            cl = abs(r['Chenh_Lech_Duyet'])
+            if cl < 1000:
+                return "🟢 Khớp duyệt nhà máy"
+            return f"🔴 LỆCH DUYỆT (Coi lại: lệch {abs(r['Chenh_Lech_Duyet']):,.0f} đ)"
+
+        df_bh_split['Canh_Bao_Duyet'] = df_bh_split.apply(xac_dinh_canh_bao_bh_dir, axis=1)
+        df_bh_split['Ma_KTV_Clean'] = df_bh_split['Ma_KTV_Clean'].fillna('Chưa có thợ')
+        df_bh_split['Ten_KTV_Clean'] = df_bh_split['Ten_KTV_Clean'].fillna('Chưa có KTV')
+        df_bh_split['So_KTV_Lam_Chung'] = df_bh_split['So_KTV_Lam_Chung'].fillna(1)
+        df_bh_split['Cong_BH_Thuc_Nhan'] = df_bh_split['Tien_Nha_May_Duyet'] / df_bh_split['So_KTV_Lam_Chung']
+        st.session_state['df_bh_split_cache'] = df_bh_split
+    except Exception as e_bh:
+        st.warning(f"Đang phân tích file bảo hành: {e_bh}")
+
+if not df_ktv_split_master.empty:
+    df_ktv_split_master = bao_ve_cot_ktv_detail(df_ktv_split_master)
+    
+    # DROPDOWN DANH SÁCH CÁC THÁNG / KỲ LƯƠNG ĐỔ XUỐNG Ở ĐẦU TRANG
+    st.markdown("---")
+    danh_sach_ky_luong = sorted(list(set([str(m) for m in df_ktv_split_master['Ky_Luong'].unique() if str(m) not in ['', 'nan', 'None']])))
+    if not danh_sach_ky_luong:
+        danh_sach_ky_luong = ['Tháng 09/2026']
+
+    f_k1, f_k2 = st.columns([4, 6])
+    with f_k1:
+        sel_ky_luong_active = st.selectbox(
+            "📅 CHỌN KỲ LƯƠNG ĐỂ XEM LẠI LỊCH SỬ:", 
+            ["Tất cả các kỳ lương"] + danh_sach_ky_luong,
+            index=1 if len(danh_sach_ky_luong) > 0 else 0
+        )
+
+    # Lọc dữ liệu theo kỳ được chọn
+    df_ktv_active = df_ktv_split_master.copy()
+    if sel_ky_luong_active != "Tất cả các kỳ lương":
+        df_ktv_active = df_ktv_active[df_ktv_active['Ky_Luong'] == sel_ky_luong_active]
+
+    col_tt_check = df_ktv_active['Trang_Thai_Khop'].astype(str) if 'Trang_Thai_Khop' in df_ktv_active.columns else pd.Series([])
+    so_ca_alarm = (col_tt_check.str.contains('CẢNH BÁO|CHƯA CÓ KTV|ALARM')).sum()
+    if so_ca_alarm > 0:
+        st.warning(f"🟡 **CẢNH BÁO: CÓ {so_ca_alarm} LỆNH ĐÃ DUYỆT NHƯNG CHƯA CÓ TÊN KTV TRONG HỆ THỐNG!** Vui lòng kiểm tra các dòng bôi vàng.")
+
+    tab_sc, tab_split_ktv, tab_bh, tab_ktv_sum = st.tabs([
+        "🔧 1. Đối Soát Lệnh Sửa Chữa (Tổng Hợp)",
+        "👷 2. Chi Tiết Tính Lương Từng KTV (Có Điều Chỉnh & Cảnh Báo)",
+        "🛡️ 3. Lệnh Bảo Hành Trong Tháng (Đối Soát Duyệt Hãng)",
+        "💰 4. Bảng Tổng Hợp Lương KTV"
+    ])
+
+    # ==================== TAB 1: ĐỐI SOÁT TỔNG HỢP ====================
+    with tab_sc:
+        st.subheader(f"🔧 Bảng Đối Soát 5114 Đầy Đủ Doanh Thu ({sel_ky_luong_active})")
+        st.info("💡 **Ghi nhận 100% doanh thu:** Cột điều chỉnh đã chuyển sang **Tab 2** để bạn chỉnh trực tiếp trên từng thợ. Khi bạn chỉnh ở Tab 2, trạng thái khớp sẽ tự động cập nhật.")
+
+        if not df_sc_summary_grouped.empty:
+            df_sc_view = df_sc_summary_grouped.copy()
+            if sel_ky_luong_active != "Tất cả các kỳ lương" and 'Thang_HD' in df_sc_view.columns:
+                df_sc_view = df_sc_view[df_sc_view['Thang_HD'] == sel_ky_luong_active]
+
+            cnt_khop = (df_sc_view['Ghi_Chu_Doi_Soat'] == "🟢 Khớp 100%").sum()
+            cnt_lech = len(df_sc_view) - cnt_khop
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Tổng Doanh Thu 5114", f"{df_sc_view['Tien_5114'].sum():,.0f} đ", f"{len(df_sc_view)} lệnh/dòng")
+            m2.metric("Lệnh Khớp Chuẩn (Tự động)", f"{cnt_khop} lệnh")
+            m3.metric("Lệnh Cần Lưu Ý", f"{cnt_lech} lệnh", delta=f"{cnt_lech} ca" if cnt_lech > 0 else "0", delta_color="inverse")
+
+            cols_sc_show = ['Số R/O hãng', 'Số R/O', 'Ngày C.từ', 'Số hóa đơn', 'Tien_5114', 'Tien_KTV', 'Chenh_Lech', 'Ghi_Chu_Doi_Soat', 'Ten_KTV_Clean']
+            cols_sc_valid = [c for c in cols_sc_show if c in df_sc_view.columns]
+            
+            cfg_sc = {
+                "Số R/O hãng": st.column_config.TextColumn("Số RO hãng", width="medium"),
+                "Số R/O": st.column_config.TextColumn("Số RO nội bộ", width="medium"),
+                "Ngày C.từ": st.column_config.TextColumn("Ngày xuất HĐ", width="small"),
+                "Số hóa đơn": st.column_config.TextColumn("Số HĐ", width="small"),
+                "Tien_5114": st.column_config.NumberColumn("Tiền 5114", format="%,d đ", width="medium"),
+                "Tien_KTV": st.column_config.NumberColumn("Tổng Tiền KTV", format="%,d đ", width="medium"),
+                "Chenh_Lech": st.column_config.NumberColumn("Chênh lệch", format="%,d đ", width="small"),
+                "Ghi_Chu_Doi_Soat": st.column_config.TextColumn("Trạng thái", width="medium"),
+                "Ten_KTV_Clean": st.column_config.TextColumn("Thợ phụ trách", width="large")
+            }
+            st.dataframe(df_sc_view[cols_sc_valid], use_container_width=True, height=540, hide_index=True, column_config=cfg_sc)
+
+    # ==================== TAB 2: SHEET CHI TIẾT KTV ====================
+    with tab_split_ktv:
+        st.subheader(f"👷 Chi Tiết Phân Bổ Tiền Công Cho KTV ({sel_ky_luong_active})")
+        st.info("💡 **Quy tắc hiển thị:** Lệnh thiếu thợ được gắn nhãn **🟡 CẢNH BÁO**. Lệnh đã có thợ nhưng chưa khớp hiển thị **🔴 Lệch**. Lệnh đã khớp hiển thị **🟢 Khớp 100%**.")
+
+        s_m1, s_m2, s_m3 = st.columns(3)
+        s_m1.metric("Tổng Tiền Công KTV", f"{df_ktv_active['Tien_Chot_KTV'].sum():,.0f} đ")
+        s_m2.metric("Tổng Số Dòng Công Việc", f"{len(df_ktv_active):,} dòng")
+        s_m3.metric("Số Ca Thiếu Thợ (Bôi Vàng)", f"{so_ca_alarm} ca", delta="🟡 Cần kiểm tra" if so_ca_alarm > 0 else "An toàn", delta_color="inverse")
+
+        fl_t2_1, fl_t2_2 = st.columns([4, 6])
+        with fl_t2_1:
+            loc_t2 = st.selectbox(
+                "🔍 Lọc trạng thái KTV:", 
+                ["Tất cả công việc", "🟡 Chỉ xem các lệnh CHƯA CÓ KTV (Bôi vàng)", "🔴 Chỉ xem các lệnh LỆCH TIỀN", "🟢 Chỉ xem các lệnh KHỚP 100%"]
