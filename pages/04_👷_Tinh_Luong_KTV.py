@@ -17,7 +17,7 @@ except Exception:
 st.title("👷 Hệ Thống Tính Lương & Đối Soát Công Kỹ Thuật Viên")
 st.caption("☁️ Quản lý đa kỳ lương | Tự động lưu trữ lịch sử hàng tháng | Lưu trữ: **Luong_KTV**.")
 
-# Khởi tạo kết nối Google Sheets an toàn, tránh treo app
+# Khởi tạo kết nối Google Sheets an toàn, tránh treo trang
 @st.cache_resource(ttl=3600)
 def get_gsheet_connection():
     try:
@@ -344,21 +344,20 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
     if up_bh:
         df_bh_serv = doc_du_lieu_bao_hanh_thong_minh(up_bh, ky_mac_dinh='Tháng 09/2026')
         
-        # 1. Gom tổng tiền Nhà Máy duyệt theo từng Lệnh duy nhất
+        # Gom tổng tiền Nhà Máy duyệt theo từng Lệnh duy nhất
         bh_wo_sum = df_bh_serv.groupby('wo_norm').agg({
             'Tien_Cong_BH': 'sum',
             'Thang_BH': 'first',
             'Ten_CV_BH': lambda x: " | ".join(sorted(set([str(v) for v in x if pd.notna(v) and str(v).strip() != ''])))[:150]
         }).reset_index().rename(columns={'Tien_Cong_BH': 'Tien_Nha_May_Duyet'})
 
-        # 2. Lọc KTV làm bảo hành (chỉ lấy KTV có tiền theo lệnh > 0, loại bỏ thợ làm bảo dưỡng ăn theo HĐ)
+        # Lọc KTV làm bảo hành (chỉ lấy KTV có tiền theo lệnh > 0, loại bỏ thợ làm bảo dưỡng tính theo HĐ)
         df_ktv_bh_chuan = df_ktv_for_bh[
             (df_ktv_for_bh['key_match'].isin(bh_wo_sum['wo_norm'])) & 
             (df_ktv_for_bh['Ma_KTV_Clean'] != '') & 
             (df_ktv_for_bh['Tien_KTV_Theo_Lenh'] > 0)
         ].copy()
 
-        # Ưu tiên các dòng bảo hành / phần mềm
         mask_bh_task = df_ktv_bh_chuan['Hang_Muc_Val'].str.lower().str.contains('bảo hành|bh|cập nhật') | \
                        df_ktv_bh_chuan['Noi_Dung_Val'].str.lower().str.contains('cập nhật|bảo hành|thay thế|frs')
         if mask_bh_task.any():
@@ -376,7 +375,7 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
         bs_bh_map = df_ktv_bh_chuan.groupby('key_match')['Bien_So_Val'].first().to_dict()
         ro_bh_map = df_ktv_bh_chuan.groupby('key_match')['So_RO_Val'].first().to_dict()
 
-        # 3. Tạo bảng đối soát 1 Lệnh = 1 Dòng
+        # Tạo bảng đối soát: 1 Lệnh = 1 Dòng
         df_bh_split = bh_wo_sum.copy()
         df_bh_split['So_RO'] = df_bh_split['wo_norm'].map(ro_bh_map).fillna(df_bh_split['wo_norm'])
         df_bh_split['Bien_So'] = df_bh_split['wo_norm'].map(bs_bh_map).fillna('')
@@ -443,7 +442,7 @@ if not df_ktv_split_master.empty:
     with tab3:
         st.subheader(f"💰 Bảng Tổng Hợp Lương Theo Kỹ Thuật Viên ({sel_ky})")
         
-        # Xử lý triệt để NaN, tránh hoàn toàn TypeError
+        # XỬ LÝ AN TOÀN TRIỆT ĐỂ: Tránh lỗi TypeError do ô trống NaN
         s_ma = df_active['Ma_KTV'].fillna('').astype(str)
         mask_hop_le = (~s_ma.str.contains('🚨|Chưa xác định|Khoản mục riêng|Bảo hành hãng', regex=True)) & (s_ma.str.strip() != '')
         df_real = df_active[mask_hop_le].copy()
