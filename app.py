@@ -1021,13 +1021,13 @@ if is_admin:
     # TAB 2: NẠP DỮ LIỆU DMS
     with tab_import:
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
-        st.info("💡 Dữ liệu nạp mới sẽ được đồng bộ và lưu vĩnh viễn lên Google Sheets.")
-        up_db = st.file_uploader("Kéo thả file Database mới vào đây", type=['csv', 'xlsx'], key='up_dms')
+        st.info("💡 Hỗ trợ tự động: Tự động gom nhiều dòng thành 1 LSC, trừ giảm giá lấy giá cuối cùng và đồng bộ lên Google Sheets.")
+        up_db = st.file_uploader("Kéo thả file Database mới vào đây (Hỗ trợ cả mẫu mới work-order-details và file cũ)", type=['csv', 'xlsx'], key='up_dms')
 
         if up_db:
             df_raw = doc_file_db(up_db)
-            st.write("🔎 Xem trước file vừa tải lên:")
-            st.dataframe(df_raw.head(3), use_container_width=True)
+            st.write(f"🔎 Xem trước dữ liệu sau khi tổng hợp ({len(df_raw)} lệnh sửa chữa):")
+            st.dataframe(df_raw.head(5), use_container_width=True)
 
             if st.button("🚀 BẮT ĐẦU NẠP VÀ LƯU LÊN GOOGLE SHEETS", type="primary", use_container_width=True):
                 df_inc = pd.DataFrame()
@@ -1038,7 +1038,6 @@ if is_admin:
                     df_inc[c] = pd.to_numeric(clean_tien_series(df_inc[c]), errors='coerce').fillna(0)
 
                 df_inc['Số lệnh sửa chữa'] = df_inc['Số lệnh sửa chữa'].astype(str).apply(clean_lsc_giu_gach)
-                df_inc['Phân loại KH'] = "KH Thông Thường"
                 df_inc.loc[(df_inc['BH hãng thanh toán'] > 0) & (df_inc['Phê duyệt bảo hành'].isna()), 'Phê duyệt bảo hành'] = "Chờ duyệt"
                 df_inc = dong_bo_hoa_don(df_inc)
                 df_inc = chuan_hoa_kieu_du_lieu(df_inc)
@@ -1069,12 +1068,20 @@ if is_admin:
                         if old_status != new_status:
                             df_master.iloc[m_idx, df_master.columns.get_loc('Trạng thái')] = new_status
                             status_updated_cnt += 1
-                        for col in COT_TIEN + ['Thời gian đóng LSC', 'Xe GSM']:
+                        
+                        # Cập nhật số tiền và thông tin mới từ file DMS
+                        for col in COT_TIEN:
                             if col in df_master.columns and col in row:
                                 df_master.iloc[m_idx, df_master.columns.get_loc(col)] = row[col]
+                        
+                        # Chỉ cập nhật thời gian đóng và CVDV nếu file mới có dữ liệu hợp lệ
+                        if row.get('Thời gian đóng LSC'):
+                            df_master.iloc[m_idx, df_master.columns.get_loc('Thời gian đóng LSC')] = row['Thời gian đóng LSC']
+                        if row.get('Cố vấn dịch vụ') and not df_master.iloc[m_idx]['Cố vấn dịch vụ']:
+                            df_master.iloc[m_idx, df_master.columns.get_loc('Cố vấn dịch vụ')] = row['Cố vấn dịch vụ']
                     
                     if i % 30 == 0:
-                        pct = int(10 + (i / total_inc) * 80)
+                        pct = int(10 + (i / max(total_inc, 1)) * 80)
                         p_bar_dms.progress(pct)
 
                 if new_records:
