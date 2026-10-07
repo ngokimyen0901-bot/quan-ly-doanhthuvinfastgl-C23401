@@ -256,6 +256,101 @@ def doc_file_db(file_obj):
     else:
         df = pd.read_excel(file_obj)
     df.columns = [str(c).strip() for c in df.columns]
+
+    # NẾU LÀ FILE MẪU DMS MỚI (work-order-details): TỰ ĐỘNG GOM DÒNG & TRỪ GIẢM GIÁ
+    if 'Lệnh sửa chữa' in df.columns and ('TT chưa GG' in df.columns or 'Mô tả sản phẩm' in df.columns):
+        col_lsc = 'Lệnh sửa chữa'
+        col_type = next((c for c in df.columns if 'loại sản phẩm' in c.lower()), 'Loại sản phẩm')
+        col_tt_lsc = next((c for c in df.columns if 'trạng thái' in c.lower()), 'Trạng thái LSC')
+        col_cvdv = next((c for c in df.columns if 'cố vấn' in c.lower()), 'Cố vấn dịch vụ')
+        col_pbill = next((c for c in df.columns if 'classification' in c.lower() or 'p/bill' in c.lower()), 'P/bill classification')
+        col_tg_dong = next((c for c in df.columns if 'ngày quyết toán' in c.lower() or 'ngày tạo' in c.lower()), 'Ngày quyết toán')
+        
+        # Làm sạch số tiền
+        df['val_chua_gg'] = pd.to_numeric(clean_tien_series(df['TT chưa GG'] if 'TT chưa GG' in df.columns else df.get('Đơn giá', 0)), errors='coerce').fillna(0)
+        df['val_gg'] = pd.to_numeric(clean_tien_series(df['Giảm giá đại lý'] if 'Giảm giá đại lý' in df.columns else 0), errors='coerce').fillna(0)
+        df['val_pt_goc'] = pd.to_numeric(clean_tien_series(df['Tổng tiền phụ tùng'] if 'Tổng tiền phụ tùng' in df.columns else 0), errors='coerce').fillna(0)
+        df['val_cong_goc'] = pd.to_numeric(clean_tien_series(df['Tổng tiền nhân công'] if 'Tổng tiền nhân công' in df.columns else 0), errors='coerce').fillna(0)
+        
+        # Tiền sau giảm giá của từng dòng (Giá cuối cùng)
+        df['val_sau_gg'] = df['val_chua_gg'] - df['val_gg']
+
+        rows_aggregated = []
+        for lsc_code, group in df.groupby(col_lsc):
+            # Tính tiền theo loại sản phẩm
+            tong_cong = group[group[col_type].astype(str).str.lower().str.contains('tiền công|nhân công')]['val_cong_goc'].sum()
+            tong_pt = group[group[col_type].astype(str).str.lower().str.contains('phụ tùng')]['val_pt_goc'].sum()
+            
+            # Giảm giá & Giá cuối cùng
+            tong_truoc_ck = group['val_chua_gg'].sum()
+            ck_dai_ly = group['val_gg'].sum()
+            tong_sau_ck = tong_truoc_ck - ck_dai_ly
+            
+            # Thuế VAT 8%
+            tien_vat = round(tong_sau_ck * 0.08)
+            tong_co_vat = tong_sau_ck + tien_vat
+            
+            # Phân bổ đối tượng thanh toán theo P/bill classification (C, W, I, P)
+            kh_tt = 0.0
+            bh_tt = 0.0
+            bh_hang_tt = 0.0
+            noi_bo_tt = 0.0
+            
+            for pb, g_pb in group.groupby(col_pbill):
+                pb_str = str(pb).strip().upper()
+                sau_ck_pb = (g_pb['val_chua_gg'] - g_pb['val_gg']).sum()
+                co_vat_pb = round(sau_ck_pb * 1.08)
+                
+                if pb_str == 'C':
+                    kh_tt += co_vat_pb
+                elif pb_str == 'W':
+                    bh_hang_tt += co_vat_pb
+                elif pb_str == 'I':
+                    bh_tt += co_vat_pb
+                elif pb_str in ['P', 'IC']:
+                    noi_bo_tt += co_vat_pb
+                else:
+                    kh_tt += co_vat_pb
+
+            # Trạng thái và thời gian
+            tt_val = str(group[col_tt_lsc].iloc[0]).strip() if col_tt_lsc in group.columns else "Đã đóng"
+            cvdv_val = str(group[col_cvdv].iloc[0]).strip() if col_cvdv in group.columns else ""
+            tg_val = str(group[col_tg_dong].dropna().iloc[0]).strip() if col_tg_dong in group.columns and len(group[col_tg_dong].dropna()) > 0 else ""
+
+            row_dict = {
+                'Số lệnh sửa chữa': clean_lsc_giu_gach(lsc_code),
+                'Trạng thái': tt_val,
+                'Cố vấn dịch vụ': cvdv_val,
+                'Tên khách hàng': '',
+                'Thời gian đóng LSC': tg_val,
+                'Biển số': '',
+                'Xe GSM': 'Không',
+                'Tổng tiền công': tong_cong,
+                'Tổng tiền phụ tùng': tong_pt,
+                'Tổng trước chiết khấu': tong_truoc_ck,
+                'Chiết khấu đại lý': ck_dai_ly,
+                'Tổng chiết khấu': ck_dai_ly,
+                'Tổng sau chiết khấu': tong_sau_ck,
+                'Tiền VAT': tien_vat,
+                'Tổng có VAT': tong_co_vat,
+                'Chiết khấu VinClub': 0,
+                'Số tiền thanh toán cuối': tong_co_vat,
+                'Tiền đặt cọc': 0,
+                'KH thanh toán': kh_tt,
+                'BH thanh toán': bh_tt,
+                'BH hãng thanh toán': bh_hang_tt,
+                'Nội bộ thanh toán': noi_bo_tt,
+                'Phân loại KH': 'KH Thông Thường',
+                'Phê duyệt bảo hành': 'Chờ duyệt' if bh_hang_tt > 0 else '',
+                'Số hóa đơn': '',
+                'Ngày xuất hóa đơn': '',
+                'Giá trị xuất hóa đơn': 0,
+                'Ghi chú': ''
+            }
+            rows_aggregated.append(row_dict)
+
+        df = pd.DataFrame(rows_aggregated)
+
     return df
 
 def dong_bo_hoa_don(df_target):
