@@ -251,19 +251,22 @@ def doc_file_cyber(file_obj):
     return cyber_keys
 
 def doc_file_db(file_obj):
-    # Đọc mượt mà cả file .csv lẫn file .xlsx
     if file_obj.name.lower().endswith('.csv'):
         df = pd.read_csv(file_obj)
     else:
         df = pd.read_excel(file_obj)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Nhận diện nếu gặp file chi tiết (work-order-details): tự động đổi tên cột LSC
-    if 'Lệnh sửa chữa' in df.columns and 'Số lệnh sửa chữa' not in df.columns:
-        df = df.rename(columns={'Lệnh sửa chữa': 'Số lệnh sửa chữa'})
-    if 'Trạng thái LSC' in df.columns and 'Trạng thái' not in df.columns:
-        df = df.rename(columns={'Trạng thái LSC': 'Trạng thái'})
-        
+    # Nhận diện nếu tệp dùng tên cột mới: đổi về tên cột chuẩn của hệ thống
+    rename_dict = {
+        'Lệnh sửa chữa': 'Số lệnh sửa chữa',
+        'Trạng thái LSC': 'Trạng thái',
+        'Ngày quyết toán': 'Thời gian đóng LSC'
+    }
+    for k, v in rename_dict.items():
+        if k in df.columns and v not in df.columns:
+            df = df.rename(columns={k: v})
+            
     return df
 
     # NẾU LÀ FILE MẪU DMS MỚI (work-order-details): TỰ ĐỘNG GOM DÒNG & TRỪ GIẢM GIÁ
@@ -1030,8 +1033,8 @@ if is_admin:
     # TAB 2: NẠP DỮ LIỆU DMS
     with tab_import:
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
-        st.info("💡 Hỗ trợ nạp trực tiếp file database.xlsx hoặc database.csv. Dữ liệu nạp mới sẽ đồng bộ và lưu vĩnh viễn lên Google Sheets.")
-        up_db = st.file_uploader("Kéo thả file Database mới vào đây", type=['csv', 'xlsx'], key='up_dms')
+        st.info("💡 Tự động lấy giá cuối cùng sau chiết khấu và tự động phân loại C, W, I theo số tiền thanh toán thực tế.")
+        up_db = st.file_uploader("Kéo thả file Database mới vào đây (.xlsx hoặc .csv)", type=['csv', 'xlsx'], key='up_dms')
 
         if up_db:
             df_raw = doc_file_db(up_db)
@@ -1044,15 +1047,35 @@ if is_admin:
                     df_inc[c] = df_raw[c] if c in df_raw.columns else ""
 
                 for c in COT_TIEN:
-                    df_inc[c] = pd.to_numeric(clean_tien_series(df_inc[c]), errors='coerce').fillna(0)
+                    df_inc[c] = pd.to_numeric(clean_tien_series(df_inc[c]), errors='coerce').fillna(0.0)
 
                 df_inc['Số lệnh sửa chữa'] = df_inc['Số lệnh sửa chữa'].astype(str).apply(clean_lsc_giu_gach)
-                
-                # Giữ nguyên phân loại KH nếu trong file đã có, nếu chưa có thì gán mặc định
-                if 'Phân loại KH' not in df_raw.columns or df_inc['Phân loại KH'].str.strip().isin(['', 'nan', 'None']).all():
-                    df_inc['Phân loại KH'] = "KH Thông Thường"
+
+                # 1. LẤY GIÁ CUỐI CÙNG SAU KHI ĐÃ TRỪ HẾT GIẢM GIÁ
+                # Tổng sau chiết khấu = Tổng trước chiết khấu - Chiết khấu đại lý
+                mask_co_ck = (df_inc['Tổng trước chiết khấu'] > 0) & (df_inc['Chiết khấu đại lý'] > 0)
+                df_inc.loc[mask_co_ck, 'Tổng sau chiết khấu'] = df_inc.loc[mask_co_ck, 'Tổng trước chiết khấu'] - df_inc.loc[mask_co_ck, 'Chiết khấu đại lý']
+
+                # 2. TỰ ĐỘNG PHÂN LOẠI C, W, I DỰA VÀO SỐ TIỀN THỰC TẾ
+                def phan_loai_theo_tien(r):
+                    bh_hang = float(r.get('BH hãng thanh toán', 0) or 0)
+                    bh = float(r.get('BH thanh toán', 0) or 0)
+                    noi_bo = float(r.get('Nội bộ thanh toán', 0) or 0)
+                    kh = float(r.get('KH thanh toán', 0) or 0)
                     
-                df_inc.loc[(df_inc['BH hãng thanh toán'] > 0) & (df_inc['Phê duyệt bảo hành'].isna()), 'Phê duyệt bảo hành'] = "Chờ duyệt"
+                    if bh_hang > 0:
+                        return "Bảo Hành Hãng"      # W
+                    elif bh > 0:
+                        return "Bảo Hiểm"           # I
+                    elif noi_bo > 0:
+                        return "Nội Bộ / PDI"       # P
+                    elif kh > 0:
+                        return "KH Thông Thường"    # C
+                    return "KH Thông Thường"
+
+                df_inc['Phân loại KH'] = df_inc.apply(phan_loai_theo_tien, axis=1)
+                df_inc.loc[(df_inc['BH hãng thanh toán'] > 0) & (df_inc['Phê duyệt bảo hành'].isna() | (df_inc['Phê duyệt bảo hành'] == '')), 'Phê duyệt bảo hành'] = "Chờ duyệt"
+
                 df_inc = dong_bo_hoa_don(df_inc)
                 df_inc = chuan_hoa_kieu_du_lieu(df_inc)
                 df_inc = loc_chuan_tu_29_thang_8(df_inc)
@@ -1061,7 +1084,14 @@ if is_admin:
                 txt_dms = st.empty()
                 txt_dms.write("⏳ Đang đối soát và cập nhật dữ liệu... (10%)")
 
+                # Đồng bộ kiểu dữ liệu an toàn tránh lỗi LossySetitemError
                 df_master = df_master.reset_index(drop=True)
+                for col in COT_TIEN + ['Giá trị xuất hóa đơn']:
+                    if col in df_master.columns:
+                        df_master[col] = pd.to_numeric(df_master[col], errors='coerce').fillna(0.0).astype(float)
+                    if col in df_inc.columns:
+                        df_inc[col] = pd.to_numeric(df_inc[col], errors='coerce').fillna(0.0).astype(float)
+
                 master_norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
                 new_records = []
                 status_updated_cnt = 0
@@ -1077,24 +1107,28 @@ if is_admin:
                         master_norm_map[k_norm] = len(df_master) + len(new_records) - 1
                     else:
                         m_idx = master_norm_map[k_norm]
-                        old_status = str(df_master.iloc[m_idx]['Trạng thái'])
+                        old_status = str(df_master.at[m_idx, 'Trạng thái'])
                         new_status = str(row['Trạng thái'])
                         if old_status != new_status:
-                            df_master.iloc[m_idx, df_master.columns.get_loc('Trạng thái')] = new_status
+                            df_master.at[m_idx, 'Trạng thái'] = new_status
                             status_updated_cnt += 1
                         
-                        # Cập nhật các cột tiền và thông tin đóng lệnh mới
-                        for col in COT_TIEN + ['Thời gian đóng LSC', 'Xe GSM']:
-                            if col in df_master.columns and col in row and pd.notna(row[col]) and str(row[col]).strip() not in ['', 'nan', 'None']:
-                                df_master.iloc[m_idx, df_master.columns.get_loc(col)] = row[col]
+                        # Cập nhật số tiền và thông tin an toàn qua .at (Không dùng .iloc)
+                        for col in COT_TIEN:
+                            if col in df_master.columns and col in row:
+                                df_master.at[m_idx, col] = float(row[col])
                                 
-                        # Bổ sung Biển số và CVDV nếu trước đó bị thiếu
-                        for col_info in ['Biển số', 'Cố vấn dịch vụ', 'Tên khách hàng']:
-                            if col_info in df_master.columns and col_info in row:
-                                val_cur = str(df_master.iloc[m_idx][col_info]).strip()
-                                val_new = str(row[col_info]).strip()
+                        for col_info in ['Thời gian đóng LSC', 'Xe GSM', 'Phân loại KH', 'Phê duyệt bảo hành']:
+                            if col_info in df_master.columns and col_info in row and str(row[col_info]).strip() not in ['', 'nan', 'None']:
+                                df_master.at[m_idx, col_info] = str(row[col_info])
+
+                        # Bổ sung Biển số, Tên KH, CVDV nếu master bị thiếu
+                        for col_txt in ['Biển số', 'Cố vấn dịch vụ', 'Tên khách hàng']:
+                            if col_txt in df_master.columns and col_txt in row:
+                                val_cur = str(df_master.at[m_idx, col_txt]).strip()
+                                val_new = str(row[col_txt]).strip()
                                 if (not val_cur or val_cur in ['nan', 'None']) and val_new and val_new not in ['nan', 'None']:
-                                    df_master.iloc[m_idx, df_master.columns.get_loc(col_info)] = val_new
+                                    df_master.at[m_idx, col_txt] = val_new
                     
                     if i % 30 == 0:
                         pct = int(10 + (i / max(total_inc, 1)) * 80)
