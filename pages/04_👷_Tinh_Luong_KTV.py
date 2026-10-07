@@ -152,7 +152,11 @@ def trich_xuat_ktv_dataframe(df_source):
     df_res['Hang_Muc_Val'] = df_res[col_hm].fillna('').astype(str).str.strip() if col_hm else ""
     df_res['Noi_Dung_Val'] = df_res[col_nd].fillna('').astype(str).str.strip() if col_nd else ""
     df_res['Ma_CV_Val'] = df_res[col_cv].fillna('').astype(str).str.strip() if col_cv else ""
-    df_res['So_RO_Val'] = df_res[col_ro_h].fillna(df_res[col_ro_nb] if col_ro_nb else '').astype(str).str.strip() if col_ro_h else ""
+    
+    # Ưu tiên lấy Số RO hãng, nếu không có thì lấy Số RO Cyber
+    val_ro_h = df_res[col_ro_h].fillna('').astype(str).str.strip() if col_ro_h else pd.Series(['']*len(df_res))
+    val_ro_nb = df_res[col_ro_nb].fillna('').astype(str).str.strip() if col_ro_nb else pd.Series(['']*len(df_res))
+    df_res['So_RO_Val'] = np.where((val_ro_h != '') & (val_ro_h != 'nan') & (val_ro_h != 'None'), val_ro_h, val_ro_nb)
 
     return df_res
 
@@ -162,7 +166,7 @@ def bao_ve_cot_ktv_detail(df):
     df_out = df.copy()
     cot_can_co = {
         'Ky_Luong': 'Tháng 09/2026',
-        'Trang_Thai_Khop': '🟢 Khớp 100%',
+        'Trang_Thai_Khop': '🟢 Công chuẩn',
         'Tien_Chot_KTV': 0.0,
         'Tien_Thuc_Nhan': 0.0,
         'Ma_KTV': 'Chưa xác định',
@@ -276,14 +280,24 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
         tien_5114 = r_5114['Tien_5114']
         shd_k = r_5114.get('Số hóa đơn', '')
         nhd_k = r_5114.get('Ngày C.từ', '')
-        ro_show = r_5114.get('Số R/O hãng', r_5114.get('Số R/O', k_match))
+        
+        # Nhận diện số RO hiển thị: Ưu tiên Hãng -> nếu không có lấy RO Cyber -> tránh chữ None
+        ro_show = r_5114.get('Số R/O hãng', '')
+        if pd.isna(ro_show) or str(ro_show).strip() in ['', 'nan', 'None']:
+            ro_show = r_5114.get('Số R/O', '')
+        if pd.isna(ro_show) or str(ro_show).strip() in ['', 'nan', 'None']:
+            ro_show = k_match
+
         thang_hd_row = r_5114.get('Thang_HD', 'Tháng 09/2026')
 
         sub_all = df_ktv_for_sc[df_ktv_for_sc['key_match'] == k_match].copy()
         if not sub_all.empty:
             bs_k = sub_all['Bien_So_Val'].iloc[0]
+            # Nếu ro_show bị rỗng thì lấy từ sub_all
+            if str(ro_show).strip() in ['', 'nan', 'None']:
+                ro_show = sub_all['So_RO_Val'].iloc[0]
 
-            # 1. Tự động nhận diện các dòng VẬT TƯ PHỤ / KEO / CHI PHÍ KHÔNG THUỘC THỢ
+            # 1. Tự động nhận diện các dòng VẬT TƯ PHỤ / KEO / CHI PHÍ KHOÁN NGOÀI
             mask_vt = (
                 sub_all['Noi_Dung_Val'].str.lower().str.contains('vật tư phụ|ốc vít|kẹp|nẹp|keo|chất kết dính|sk221') |
                 sub_all['Ma_CV_Val'].str.upper().str.contains('SK221|VTPHU') |
@@ -369,6 +383,16 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
     ktv_totals = df_ktv_split_master.groupby('key_match')['Tien_Chot_KTV'].sum().to_dict()
 
     df_doi_soat_lenh = df_5114_grouped.copy()
+    
+    # Chuẩn hóa hiển thị RO cấp lệnh (ưu tiên Hãng -> Cyber)
+    def clean_ro_display(r):
+        roh = str(r.get(col_5114_ro_hang, '')).strip()
+        ronb = str(r.get(col_5114_ro_nb, '')).strip()
+        if roh and roh not in ['nan', 'None']: return roh
+        if ronb and ronb not in ['nan', 'None']: return ronb
+        return r['key_match']
+
+    df_doi_soat_lenh['So_RO_Hien_Thi'] = df_doi_soat_lenh.apply(clean_ro_display, axis=1)
     df_doi_soat_lenh['Tien_KTV_Tho'] = df_doi_soat_lenh['key_match'].map(ktv_totals).fillna(0.0)
     df_doi_soat_lenh['Tien_Vat_Tu_Phu'] = df_doi_soat_lenh['key_match'].map(vtp_dict).fillna(0.0)
     df_doi_soat_lenh['Chi_Tiet_VTP'] = df_doi_soat_lenh['key_match'].map(vtp_desc_dict).fillna('')
@@ -455,17 +479,31 @@ if not df_ktv_split_master.empty:
     
     with tab1:
         st.subheader(f"🔧 Chi Tiết Công Việc KTV ({sel_ky})")
-        st.info("💡 **Ghi nhận chuẩn công thợ:** Các dòng công việc hiển thị đúng số tiền phân bổ thực tế của từng KTV. Trạng thái phản ánh tính hợp lệ của công việc.")
+        st.info("💡 **Ghi nhận chuẩn công thợ:** Hiển thị tiền phân bổ thực tế của từng KTV. Nếu lệnh chưa có RO hãng, hệ thống tự động nhận diện theo Số RO Cyber.")
         cols_t1 = ['So_RO', 'Bien_So', 'So_HD', 'Ngay_Xuat_HD', 'Hang_Muc', 'Noi_Dung_CV', 'Ma_KTV', 'Ten_KTV', 'Tien_Chot_KTV', 'Trang_Thai_Khop']
         cols_t1_v = [c for c in cols_t1 if c in df_active.columns]
         st.dataframe(df_active[cols_t1_v], use_container_width=True, height=520, hide_index=True)
 
     with tab_giai_trinh:
         st.subheader(f"⚖️ Bảng Đối Soát Cấp Lệnh & Giải Trình Chênh Lệch ({sel_ky})")
-        st.caption("🔍 Tự động giải trình doanh thu 5114 = Tiền công thợ + Vật tư phụ/Keo dán kính/Khoán ngoài.")
+        
+        # BỘ LỌC TÙY CHỌN: GIÚP CHỈ XEM LỆNH LỆCH KHI CẦN
+        col_f1, col_f2 = st.columns([4, 6])
+        with col_f1:
+            loc_ds = st.selectbox(
+                "🔍 Lọc trạng thái lệnh:", 
+                ["🔴 Chỉ xem các lệnh LỆCH TIỀN (Cần kiểm tra)", "Tất cả các lệnh", "🟢 Chỉ xem các lệnh ĐÃ KHỚP"]
+            )
+
         if not df_doi_soat_lenh.empty:
+            df_ds_view = df_doi_soat_lenh.copy()
+            if "LỆCH TIỀN" in loc_ds:
+                df_ds_view = df_ds_view[df_ds_view['Ket_Luan'].str.contains('Lệch')]
+            elif "ĐÃ KHỚP" in loc_ds:
+                df_ds_view = df_ds_view[df_ds_view['Ket_Luan'].str.contains('Khớp')]
+
             cfg_lenh = {
-                "Số R/O hãng": st.column_config.TextColumn("Số RO Hãng", width="medium"),
+                "So_RO_Hien_Thi": st.column_config.TextColumn("Số LSC / RO (Hãng hoặc Cyber)", width="medium"),
                 "Số hóa đơn": st.column_config.TextColumn("Số HĐ", width="small"),
                 "Tien_5114": st.column_config.NumberColumn("Doanh Thu 5114", format="%,d đ"),
                 "Tien_KTV_Tho": st.column_config.NumberColumn("Công Thợ Hưởng", format="%,d đ"),
@@ -475,9 +513,9 @@ if not df_ktv_split_master.empty:
                 "Ket_Luan": st.column_config.TextColumn("Kết Luận Đối Soát", width="medium"),
                 "Chi_Tiet_VTP": st.column_config.TextColumn("Ghi Chú Vật Tư Phụ", width="large"),
             }
-            cols_ds_show = ['Số R/O hãng', 'Số hóa đơn', 'Tien_5114', 'Tien_KTV_Tho', 'Tien_Vat_Tu_Phu', 'Tong_Giai_Trinh', 'Chenh_Lech_Thuc_Te', 'Ket_Luan', 'Chi_Tiet_VTP']
-            cols_ds_valid = [c for c in cols_ds_show if c in df_doi_soat_lenh.columns]
-            st.dataframe(df_doi_soat_lenh[cols_ds_valid], column_config=cfg_lenh, use_container_width=True, height=520, hide_index=True)
+            cols_ds_show = ['So_RO_Hien_Thi', 'Số hóa đơn', 'Tien_5114', 'Tien_KTV_Tho', 'Tien_Vat_Tu_Phu', 'Tong_Giai_Trinh', 'Chenh_Lech_Thuc_Te', 'Ket_Luan', 'Chi_Tiet_VTP']
+            cols_ds_valid = [c for c in cols_ds_show if c in df_ds_view.columns]
+            st.dataframe(df_ds_view[cols_ds_valid], column_config=cfg_lenh, use_container_width=True, height=520, hide_index=True)
         else:
             st.info("Chưa có dữ liệu bảng tổng hợp chênh lệch.")
 
