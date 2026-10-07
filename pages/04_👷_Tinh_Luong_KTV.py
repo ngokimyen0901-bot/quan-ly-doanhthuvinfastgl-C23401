@@ -14,7 +14,7 @@ except Exception:
     pass
 
 st.title("👷 Hệ Thống Tính Lương & Đối Soát Công Kỹ Thuật Viên")
-st.caption("☁️ Quản lý đa kỳ lương | Tự động phân tách Vật tư phụ & Doanh thu thợ | Lưu trữ: **Luong_KTV**.")
+st.caption("☁️ Quản lý đa kỳ lương | Tự động nhận diện RO Cyber khi không có RO Hãng | Lưu trữ: **Luong_KTV**.")
 
 @st.cache_resource(ttl=3600)
 def get_gsheet_connection():
@@ -52,7 +52,7 @@ def doc_file_5114_chuan(file_obj):
     header_idx = 0
     for idx, row in df_raw.head(25).iterrows():
         row_str = " ".join([str(v).lower() for v in row.values if pd.notna(v)])
-        if any(k in row_str for k in ['số c.từ', 'số hóa đơn', 'số r/o', 'lệnh sửa chữa']):
+        if any(k in row_str for k in ['số c.từ', 'số hóa đơn', 'số r/o', 'số ro', 'lệnh sửa chữa']):
             header_idx = idx
             break
 
@@ -60,7 +60,7 @@ def doc_file_5114_chuan(file_obj):
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-def doc_file_excel_chung(file_obj, tu_khoa=['số ro', 'mã ktv', 'lệnh sửa chữa', 'wo']):
+def doc_file_excel_chung(file_obj, tu_khoa=['số ro', 'số r/o', 'mã ktv', 'lệnh sửa chữa', 'wo']):
     if file_obj is None:
         return pd.DataFrame()
     if file_obj.name.lower().endswith('.csv'):
@@ -71,7 +71,7 @@ def doc_file_excel_chung(file_obj, tu_khoa=['số ro', 'mã ktv', 'lệnh sửa 
     xls = pd.ExcelFile(file_obj)
     target_sheet = xls.sheet_names[0]
     for s in xls.sheet_names:
-        if any(k in s.lower() for k in ['ktv', 'claim', 'active', 'chi tiết', 'đối soát']):
+        if any(k in s.lower() for k in ['ktv', 'claim', 'active', 'chi tiết', 'đối soát', 'doanh thu']):
             target_sheet = s
             break
 
@@ -109,7 +109,7 @@ def doc_du_lieu_bao_hanh_thong_minh(file_obj, ky_mac_dinh='Tháng 09/2026'):
     if col_loai_sp and df_out[col_loai_sp].dropna().astype(str).str.lower().str.contains('dịch vụ|service').any():
         df_out = df_out[df_out[col_loai_sp].astype(str).str.lower().str.contains('dịch vụ|service')].copy()
     
-    col_wo = next((c for c in df_out.columns if any(k in c.lower() for k in ['lệnh sửa chữa', 'lsc', 'wo', 'số ro'])), df_out.columns[0])
+    col_wo = next((c for c in df_out.columns if any(k in c.lower() for k in ['lệnh sửa chữa', 'lsc', 'wo', 'số ro', 'số r/o'])), df_out.columns[0])
     col_cong = next((c for c in df_out.columns if any(k in c.lower() for k in ['approved service', 'tiền công yêu cầu', 'tổng số tiền', 'amount', 'thành tiền', 'tiền'])), df_out.columns[-1])
     col_cv = next((c for c in df_out.columns if any(k in c.lower() for k in ['tên công việc', 'mô tả', 'công việc'])), df_out.columns[0])
 
@@ -124,39 +124,56 @@ def trich_xuat_ktv_dataframe(df_source):
     if df_source is None or df_source.empty:
         return pd.DataFrame()
     df_res = df_source.copy()
-    col_ro_h = next((c for c in df_res.columns if any(k in c.lower() for k in ['số ro hãng', 'ro hãng', 'số lệnh sửa chữa'])), None)
-    col_ro_nb = next((c for c in df_res.columns if c.strip().lower() in ['số ro', 'ro']), None)
+    
+    # 1. Quét tìm cột Số RO Hãng
+    col_ro_h = next((c for c in df_res.columns if any(k in c.lower() for k in ['số ro hãng', 'ro hãng', 'số lệnh sửa chữa', 'lsc'])), None)
+    
+    # 2. Quét tìm cột Số RO Cyber (nội bộ): mở rộng các từ khóa
+    col_ro_nb = next((c for c in df_res.columns if any(k in c.strip().lower() for k in ['số r/o', 'số ro', 'số c.từ', 'số chứng từ', 'chứng từ', 'số phiếu', 'ro'])), None)
+    
     col_ma = next((c for c in df_res.columns if 'mã ktv' in c.lower()), None)
-    col_ten = next((c for c in df_res.columns if any(k in c.lower() for k in ['tên ktv', 'kỹ thuật viên'])), None)
+    col_ten = next((c for c in df_res.columns if any(k in c.lower() for k in ['tên ktv', 'kỹ thuật viên', 'thợ'])), None)
     
     col_tien_hd = next((c for c in df_res.columns if any(k in c.lower() for k in ['theo hd', 'theo hóa đơn'])), None)
     col_tien_lenh = next((c for c in df_res.columns if any(k in c.lower() for k in ['theo lệnh', 'theo lenh'])), None)
     col_thanh_tien = next((c for c in df_res.columns if c.strip().lower() in ['thành tiền', 'thanh tien', 'tổng tiền công']), None)
 
-    col_bs = next((c for c in df_res.columns if 'biển' in c.lower()), None)
-    col_hm = next((c for c in df_res.columns if 'hạng mục' in c.lower()), None)
-    col_nd = next((c for c in df_res.columns if any(k in c.lower() for k in ['nội dung', 'công việc'])), None)
+    col_bs = next((c for c in df_res.columns if any(k in c.lower() for k in ['biển', 'biển số', 'số xe'])), None)
+    col_hm = next((c for c in df_res.columns if 'hạng mục' in c.lower() or 'mục' in c.lower()), None)
+    col_nd = next((c for c in df_res.columns if any(k in c.lower() for k in ['nội dung', 'công việc', 'diễn giải'])), None)
     col_cv = next((c for c in df_res.columns if 'mã cv' in c.lower()), None)
+    col_shd = next((c for c in df_res.columns if 'hóa đơn' in c.lower() or 'số hđ' in c.lower()), None)
 
-    df_res['wo_norm'] = df_res[col_ro_h].apply(norm_wo_key) if col_ro_h else ''
-    df_res['ro_nb_norm'] = df_res[col_ro_nb].apply(norm_wo_key) if col_ro_nb else ''
-    df_res['key_match'] = np.where(df_res['wo_norm'] != '', df_res['wo_norm'], df_res['ro_nb_norm'])
+    # Lấy giá trị chuỗi an toàn
+    val_ro_h = df_res[col_ro_h].fillna('').astype(str).str.strip() if col_ro_h else pd.Series(['']*len(df_res))
+    val_ro_nb = df_res[col_ro_nb].fillna('').astype(str).str.strip() if col_ro_nb else pd.Series(['']*len(df_res))
+    val_shd = df_res[col_shd].fillna('').astype(str).str.strip() if col_shd else pd.Series(['']*len(df_res))
+
+    # Chuẩn hóa key match
+    df_res['wo_norm'] = val_ro_h.apply(norm_wo_key)
+    df_res['ro_nb_norm'] = val_ro_nb.apply(norm_wo_key)
+    df_res['shd_norm'] = val_shd.apply(norm_wo_key)
+
+    # Ưu tiên key match: RO Hãng -> RO Cyber -> Số Hóa Đơn
+    df_res['key_match'] = np.where(df_res['wo_norm'] != '', df_res['wo_norm'],
+                          np.where(df_res['ro_nb_norm'] != '', df_res['ro_nb_norm'], df_res['shd_norm']))
+
+    # Tên hiển thị Số RO: Không bao giờ để chữ None
+    df_res['So_RO_Val'] = np.where((val_ro_h != '') & (~val_ro_h.str.lower().isin(['none', 'nan'])), val_ro_h,
+                          np.where((val_ro_nb != '') & (~val_ro_nb.str.lower().isin(['none', 'nan'])), val_ro_nb, 
+                          val_shd))
 
     df_res['Ma_KTV_Clean'] = df_res[col_ma].fillna('').astype(str).str.strip().str.replace('.0', '', regex=False) if col_ma else ""
     df_res['Ten_KTV_Clean'] = df_res[col_ten].fillna('').astype(str).str.strip() if col_ten else ""
     
-    df_res['Tien_KTV_Theo_HD'] = df_res[col_tien_hd].apply(clean_num) if col_tien_hd else 0.0
-    df_res['Tien_KTV_Theo_Lenh'] = df_res[col_tien_lenh].apply(clean_num) if col_tien_lenh else (df_res[col_thanh_tien].apply(clean_num) if col_thanh_tien else 0.0)
+    # Lấy chính xác số tiền dịch vụ theo HĐ
+    df_res['Tien_KTV_Theo_HD'] = df_res[col_tien_hd].apply(clean_num) if col_tien_hd else (df_res[col_thanh_tien].apply(clean_num) if col_thanh_tien else 0.0)
+    df_res['Tien_KTV_Theo_Lenh'] = df_res[col_tien_lenh].apply(clean_num) if col_tien_lenh else df_res['Tien_KTV_Theo_HD']
 
     df_res['Bien_So_Val'] = df_res[col_bs].fillna('').astype(str).str.strip() if col_bs else ""
-    df_res['Hang_Muc_Val'] = df_res[col_hm].fillna('').astype(str).str.strip() if col_hm else ""
+    df_res['Hang_Muc_Val'] = df_res[col_hm].fillna('').astype(str).str.strip() if col_hm else "Sửa chữa"
     df_res['Noi_Dung_Val'] = df_res[col_nd].fillna('').astype(str).str.strip() if col_nd else ""
     df_res['Ma_CV_Val'] = df_res[col_cv].fillna('').astype(str).str.strip() if col_cv else ""
-    
-    # Ưu tiên lấy Số RO hãng, nếu không có thì lấy Số RO Cyber
-    val_ro_h = df_res[col_ro_h].fillna('').astype(str).str.strip() if col_ro_h else pd.Series(['']*len(df_res))
-    val_ro_nb = df_res[col_ro_nb].fillna('').astype(str).str.strip() if col_ro_nb else pd.Series(['']*len(df_res))
-    df_res['So_RO_Val'] = np.where((val_ro_h != '') & (val_ro_h != 'nan') & (val_ro_h != 'None'), val_ro_h, val_ro_nb)
 
     return df_res
 
@@ -235,8 +252,8 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
     col_5114_ngay = next((c for c in df_5114.columns if any(k in c.lower() for k in ['ngày c.từ', 'ngày chứng từ', 'ngày xuất hóa đơn', 'ngày hđ', 'thời gian đóng lsc'])), 'Ngày C.từ')
     col_5114_shd = next((c for c in df_5114.columns if 'hóa đơn' in c.lower()), 'Số hóa đơn')
     col_5114_tien = next((c for c in df_5114.columns if c.strip().lower() in ['có', 'co', 'phát sinh có', 'tổng tiền công', 'tổng có vat', 'tiền công']), 'Có')
-    col_5114_ro_hang = next((c for c in df_5114.columns if any(k in c.lower() for k in ['số r/o hãng', 'ro hãng', 'số lệnh sửa chữa'])), 'Số R/O hãng')
-    col_5114_ro_nb = next((c for c in df_5114.columns if c.strip().lower() in ['số r/o', 'số ro']), 'Số R/O')
+    col_5114_ro_hang = next((c for c in df_5114.columns if any(k in c.lower() for k in ['số r/o hãng', 'ro hãng', 'số lệnh sửa chữa', 'lsc'])), 'Số R/O hãng')
+    col_5114_ro_nb = next((c for c in df_5114.columns if any(k in c.strip().lower() for k in ['số r/o', 'số ro', 'số c.từ', 'số chứng từ', 'chứng từ'])), 'Số R/O')
     col_5114_dg = next((c for c in df_5114.columns if any(k in c.lower() for k in ['diễn giải', 'unnamed: 11', 'yêu cầu khách hàng'])), 'Diễn giải')
     col_5114_kh = next((c for c in df_5114.columns if any(k in c.lower() for k in ['tên khách', 'khách hàng'])), df_5114.columns[0])
 
@@ -254,6 +271,8 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
         if w: return w
         ro = norm_wo_key(r.get(col_5114_ro_nb))
         if ro: return ro
+        shd = norm_wo_key(r.get(col_5114_shd))
+        if shd: return f"HD_{shd}"
         dg = str(r.get(col_5114_dg, '')).lower()
         if 'cứu hộ' in dg: return "CUU_HO_2608"
         if 'bảo hành' in dg: return "BAO_HANH_BANG_KE_2608"
@@ -281,20 +300,24 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
         shd_k = r_5114.get('Số hóa đơn', '')
         nhd_k = r_5114.get('Ngày C.từ', '')
         
-        # Nhận diện số RO hiển thị: Ưu tiên Hãng -> nếu không có lấy RO Cyber -> tránh chữ None
-        ro_show = r_5114.get('Số R/O hãng', '')
-        if pd.isna(ro_show) or str(ro_show).strip() in ['', 'nan', 'None']:
-            ro_show = r_5114.get('Số R/O', '')
-        if pd.isna(ro_show) or str(ro_show).strip() in ['', 'nan', 'None']:
-            ro_show = k_match
+        # Nhận diện số RO hiển thị: Ưu tiên Hãng -> Cyber -> Tuyệt đối không để chữ None
+        ro_show = str(r_5114.get(col_5114_ro_hang, '')).strip()
+        if not ro_show or ro_show.lower() in ['nan', 'none', '']:
+            ro_show = str(r_5114.get(col_5114_ro_nb, '')).strip()
+        if not ro_show or ro_show.lower() in ['nan', 'none', '']:
+            ro_show = f"HĐ {shd_k}" if shd_k else k_match
 
         thang_hd_row = r_5114.get('Thang_HD', 'Tháng 09/2026')
 
         sub_all = df_ktv_for_sc[df_ktv_for_sc['key_match'] == k_match].copy()
+        
+        # Thử tìm kiếm phụ qua số HĐ nếu key_match ban đầu không khớp
+        if sub_all.empty and shd_k:
+            sub_all = df_ktv_for_sc[df_ktv_for_sc['shd_norm'] == norm_wo_key(shd_k)].copy()
+
         if not sub_all.empty:
             bs_k = sub_all['Bien_So_Val'].iloc[0]
-            # Nếu ro_show bị rỗng thì lấy từ sub_all
-            if str(ro_show).strip() in ['', 'nan', 'None']:
+            if str(ro_show).strip().lower() in ['', 'nan', 'none']:
                 ro_show = sub_all['So_RO_Val'].iloc[0]
 
             # 1. Tự động nhận diện các dòng VẬT TƯ PHỤ / KEO / CHI PHÍ KHOÁN NGOÀI
@@ -313,7 +336,7 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
                     'Chi_Tiet_VTP': " | ".join(df_vt_phu['Noi_Dung_Val'].unique())
                 })
 
-            # 2. Dòng công việc thực tế của KTV
+            # 2. Dòng công việc thực tế của KTV (GIỮ NGUYÊN 100% SỐ TIỀN CÔNG THỰC NHẬN)
             sub_works = sub_all[(~mask_vt) & (sub_all['Ma_KTV_Clean'] != '') & (sub_all['Tien_KTV_Theo_HD'] > 0)].copy()
             if not sub_works.empty:
                 for _, r_tho in sub_works.iterrows():
@@ -384,12 +407,13 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
 
     df_doi_soat_lenh = df_5114_grouped.copy()
     
-    # Chuẩn hóa hiển thị RO cấp lệnh (ưu tiên Hãng -> Cyber)
     def clean_ro_display(r):
         roh = str(r.get(col_5114_ro_hang, '')).strip()
         ronb = str(r.get(col_5114_ro_nb, '')).strip()
-        if roh and roh not in ['nan', 'None']: return roh
-        if ronb and ronb not in ['nan', 'None']: return ronb
+        if roh and roh.lower() not in ['nan', 'none']: return roh
+        if ronb and ronb.lower() not in ['nan', 'none']: return ronb
+        shd = str(r.get(col_5114_shd, '')).strip()
+        if shd: return f"HĐ {shd}"
         return r['key_match']
 
     df_doi_soat_lenh['So_RO_Hien_Thi'] = df_doi_soat_lenh.apply(clean_ro_display, axis=1)
@@ -479,7 +503,7 @@ if not df_ktv_split_master.empty:
     
     with tab1:
         st.subheader(f"🔧 Chi Tiết Công Việc KTV ({sel_ky})")
-        st.info("💡 **Ghi nhận chuẩn công thợ:** Hiển thị tiền phân bổ thực tế của từng KTV. Nếu lệnh chưa có RO hãng, hệ thống tự động nhận diện theo Số RO Cyber.")
+        st.info("💡 **Ghi nhận chuẩn công thợ:** Hiển thị tiền phân bổ thực tế của từng KTV. Hệ thống tự động quét Số RO Cyber hoặc Số HĐ khi không có RO Hãng.")
         cols_t1 = ['So_RO', 'Bien_So', 'So_HD', 'Ngay_Xuat_HD', 'Hang_Muc', 'Noi_Dung_CV', 'Ma_KTV', 'Ten_KTV', 'Tien_Chot_KTV', 'Trang_Thai_Khop']
         cols_t1_v = [c for c in cols_t1 if c in df_active.columns]
         st.dataframe(df_active[cols_t1_v], use_container_width=True, height=520, hide_index=True)
@@ -487,7 +511,6 @@ if not df_ktv_split_master.empty:
     with tab_giai_trinh:
         st.subheader(f"⚖️ Bảng Đối Soát Cấp Lệnh & Giải Trình Chênh Lệch ({sel_ky})")
         
-        # BỘ LỌC TÙY CHỌN: GIÚP CHỈ XEM LỆNH LỆCH KHI CẦN
         col_f1, col_f2 = st.columns([4, 6])
         with col_f1:
             loc_ds = st.selectbox(
