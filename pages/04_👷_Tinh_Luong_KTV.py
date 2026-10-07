@@ -359,9 +359,29 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
                 'Tien_5114': tien_5114
             })
 
-    df_ktv_split_master = pd.DataFrame(ktv_details_temp)
+df_ktv_split_master = pd.DataFrame(ktv_details_temp)
     df_ktv_split_master = bao_ve_cot_ktv_detail(df_ktv_split_master)
-    st.session_state['df_ktv_split_master'] = df_ktv_split_master
+
+    # Tính tổng tiền KTV thực nhận trên từng Lệnh sửa chữa (RO)
+    ktv_totals = df_ktv_split_master.groupby('key_match')['Tien_Chot_KTV'].sum().to_dict()
+
+    def xac_dinh_trang_thai_row(r):
+        k = r['key_match']
+        if r['Ma_KTV'] in ['🚨 CẦN GÁN THỢ', 'Chưa xác định', '']:
+            return "🟡 CẢNH BÁO: CHƯA CÓ KTV"
+        if k in ["CUU_HO_2608", "BAO_HANH_BANG_KE_2608"]:
+            return "🟢 Khoản mục riêng"
+            
+        t_5114 = clean_num(r['Tien_5114'])
+        t_ktv = ktv_totals.get(k, 0.0)
+        cl = abs(t_5114 - t_ktv)
+        
+        # Cho phép sai số làm tròn lẻ vài đồng do chia 3 (266.666,67 x 3 = 800.000)
+        if cl <= 50:
+            return "🟢 Khớp 100%"
+        return f"🔴 Lệch {cl:,.0f} đ"
+
+    df_ktv_split_master['Trang_Thai_Khop'] = df_ktv_split_master.apply(xac_dinh_trang_thai_row, axis=1)
 
     # Xử lý bảo hành đối soát chuẩn xác
     if up_bh:
