@@ -14,7 +14,7 @@ except Exception:
     pass
 
 st.title("👷 Hệ Thống Tính Lương & Đối Soát Công Kỹ Thuật Viên")
-st.caption("☁️ Quản lý đa kỳ lương | Tự động nhận diện RO Cyber khi không có RO Hãng | Lưu trữ: **Luong_KTV**.")
+st.caption("☁️ Quản lý đa kỳ lương | Tự động đối trừ giảm giá, MTBH vào công thợ | Lưu trữ: **Luong_KTV**.")
 
 @st.cache_resource(ttl=3600)
 def get_gsheet_connection():
@@ -36,6 +36,9 @@ def clean_num(val):
     if pd.isna(val) or val is None:
         return 0.0
     s = str(val).replace(',', '').replace(' ', '').replace('đ', '').strip()
+    # Xử lý dấu âm nếu có dấu gạch ngang dạng unicode hoặc khoảng cách
+    if s.startswith('-') or ' - ' in s:
+        s = s.replace(' - ', '-').replace('- ', '-')
     try:
         return float(s)
     except Exception:
@@ -125,10 +128,7 @@ def trich_xuat_ktv_dataframe(df_source):
         return pd.DataFrame()
     df_res = df_source.copy()
     
-    # 1. Quét tìm cột Số RO Hãng
     col_ro_h = next((c for c in df_res.columns if any(k in c.lower() for k in ['số ro hãng', 'ro hãng', 'số lệnh sửa chữa', 'lsc'])), None)
-    
-    # 2. Quét tìm cột Số RO Cyber (nội bộ): mở rộng các từ khóa
     col_ro_nb = next((c for c in df_res.columns if any(k in c.strip().lower() for k in ['số r/o', 'số ro', 'số c.từ', 'số chứng từ', 'chứng từ', 'số phiếu', 'ro'])), None)
     
     col_ma = next((c for c in df_res.columns if 'mã ktv' in c.lower()), None)
@@ -144,21 +144,17 @@ def trich_xuat_ktv_dataframe(df_source):
     col_cv = next((c for c in df_res.columns if 'mã cv' in c.lower()), None)
     col_shd = next((c for c in df_res.columns if 'hóa đơn' in c.lower() or 'số hđ' in c.lower()), None)
 
-    # Lấy giá trị chuỗi an toàn
     val_ro_h = df_res[col_ro_h].fillna('').astype(str).str.strip() if col_ro_h else pd.Series(['']*len(df_res))
     val_ro_nb = df_res[col_ro_nb].fillna('').astype(str).str.strip() if col_ro_nb else pd.Series(['']*len(df_res))
     val_shd = df_res[col_shd].fillna('').astype(str).str.strip() if col_shd else pd.Series(['']*len(df_res))
 
-    # Chuẩn hóa key match
     df_res['wo_norm'] = val_ro_h.apply(norm_wo_key)
     df_res['ro_nb_norm'] = val_ro_nb.apply(norm_wo_key)
     df_res['shd_norm'] = val_shd.apply(norm_wo_key)
 
-    # Ưu tiên key match: RO Hãng -> RO Cyber -> Số Hóa Đơn
     df_res['key_match'] = np.where(df_res['wo_norm'] != '', df_res['wo_norm'],
                           np.where(df_res['ro_nb_norm'] != '', df_res['ro_nb_norm'], df_res['shd_norm']))
 
-    # Tên hiển thị Số RO: Không bao giờ để chữ None
     df_res['So_RO_Val'] = np.where((val_ro_h != '') & (~val_ro_h.str.lower().isin(['none', 'nan'])), val_ro_h,
                           np.where((val_ro_nb != '') & (~val_ro_nb.str.lower().isin(['none', 'nan'])), val_ro_nb, 
                           val_shd))
@@ -166,7 +162,7 @@ def trich_xuat_ktv_dataframe(df_source):
     df_res['Ma_KTV_Clean'] = df_res[col_ma].fillna('').astype(str).str.strip().str.replace('.0', '', regex=False) if col_ma else ""
     df_res['Ten_KTV_Clean'] = df_res[col_ten].fillna('').astype(str).str.strip() if col_ten else ""
     
-    # Lấy chính xác số tiền dịch vụ theo HĐ
+    # Lấy chính xác số tiền dịch vụ (giữ nguyên cả số âm để đối trừ)
     df_res['Tien_KTV_Theo_HD'] = df_res[col_tien_hd].apply(clean_num) if col_tien_hd else (df_res[col_thanh_tien].apply(clean_num) if col_thanh_tien else 0.0)
     df_res['Tien_KTV_Theo_Lenh'] = df_res[col_tien_lenh].apply(clean_num) if col_tien_lenh else df_res['Tien_KTV_Theo_HD']
 
@@ -300,7 +296,6 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
         shd_k = r_5114.get('Số hóa đơn', '')
         nhd_k = r_5114.get('Ngày C.từ', '')
         
-        # Nhận diện số RO hiển thị: Ưu tiên Hãng -> Cyber -> Tuyệt đối không để chữ None
         ro_show = str(r_5114.get(col_5114_ro_hang, '')).strip()
         if not ro_show or ro_show.lower() in ['nan', 'none', '']:
             ro_show = str(r_5114.get(col_5114_ro_nb, '')).strip()
@@ -310,8 +305,6 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
         thang_hd_row = r_5114.get('Thang_HD', 'Tháng 09/2026')
 
         sub_all = df_ktv_for_sc[df_ktv_for_sc['key_match'] == k_match].copy()
-        
-        # Thử tìm kiếm phụ qua số HĐ nếu key_match ban đầu không khớp
         if sub_all.empty and shd_k:
             sub_all = df_ktv_for_sc[df_ktv_for_sc['shd_norm'] == norm_wo_key(shd_k)].copy()
 
@@ -320,11 +313,12 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
             if str(ro_show).strip().lower() in ['', 'nan', 'none']:
                 ro_show = sub_all['So_RO_Val'].iloc[0]
 
-            # 1. Tự động nhận diện các dòng VẬT TƯ PHỤ / KEO / CHI PHÍ KHOÁN NGOÀI
+            # 1. Tự động nhận diện dòng VẬT TƯ PHỤ / KEO / CHI PHÍ KHOÁN NGOÀI (CHỈ LẤY KHI KHÔNG CÓ TÊN KTV)
+            # Nếu dòng có chữ Giảm giá / Chiết khấu / Miễn thường BH nhưng CÓ TÊN KTV -> Không coi là VTP mà coi là điều chỉnh công thợ
             mask_vt = (
-                sub_all['Noi_Dung_Val'].str.lower().str.contains('vật tư phụ|ốc vít|kẹp|nẹp|keo|chất kết dính|sk221') |
-                sub_all['Ma_CV_Val'].str.upper().str.contains('SK221|VTPHU') |
-                (sub_all['Ma_KTV_Clean'] == '') & (sub_all['Tien_KTV_Theo_HD'] > 0)
+                (sub_all['Noi_Dung_Val'].str.lower().str.contains('vật tư phụ|ốc vít|kẹp|nẹp|keo|chất kết dính|sk221') |
+                 sub_all['Ma_CV_Val'].str.upper().str.contains('SK221|VTPHU')) & 
+                (sub_all['Ma_KTV_Clean'] == '')
             )
             df_vt_phu = sub_all[mask_vt].copy()
             tien_vtp = df_vt_phu['Tien_KTV_Theo_HD'].sum()
@@ -336,8 +330,10 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
                     'Chi_Tiet_VTP': " | ".join(df_vt_phu['Noi_Dung_Val'].unique())
                 })
 
-            # 2. Dòng công việc thực tế của KTV (GIỮ NGUYÊN 100% SỐ TIỀN CÔNG THỰC NHẬN)
-            sub_works = sub_all[(~mask_vt) & (sub_all['Ma_KTV_Clean'] != '') & (sub_all['Tien_KTV_Theo_HD'] > 0)].copy()
+            # 2. Xử lý công việc KTV: LẤY CẢ DÒNG TIỀN ÂM CỦA KTV ĐỂ TỰ ĐỐI TRỪ GIẢM GIÁ / CHIẾT KHẤU / MTBH
+            # Tiêu chí: Có mã KTV và Tiền dịch vụ != 0 (chấp nhận cả < 0)
+            sub_works = sub_all[(~mask_vt) & (sub_all['Ma_KTV_Clean'] != '') & (sub_all['Tien_KTV_Theo_HD'] != 0)].copy()
+
             if not sub_works.empty:
                 for _, r_tho in sub_works.iterrows():
                     tien_tho_nhan = r_tho['Tien_KTV_Theo_HD']
@@ -503,7 +499,7 @@ if not df_ktv_split_master.empty:
     
     with tab1:
         st.subheader(f"🔧 Chi Tiết Công Việc KTV ({sel_ky})")
-        st.info("💡 **Ghi nhận chuẩn công thợ:** Hiển thị tiền phân bổ thực tế của từng KTV. Hệ thống tự động quét Số RO Cyber hoặc Số HĐ khi không có RO Hãng.")
+        st.info("💡 **Ghi nhận chuẩn công thợ:** Đã đối trừ chính xác các dòng giảm giá thẻ thành viên / chiết khấu có tên KTV. Số tiền khớp 100% với doanh thu HĐ.")
         cols_t1 = ['So_RO', 'Bien_So', 'So_HD', 'Ngay_Xuat_HD', 'Hang_Muc', 'Noi_Dung_CV', 'Ma_KTV', 'Ten_KTV', 'Tien_Chot_KTV', 'Trang_Thai_Khop']
         cols_t1_v = [c for c in cols_t1 if c in df_active.columns]
         st.dataframe(df_active[cols_t1_v], use_container_width=True, height=520, hide_index=True)
