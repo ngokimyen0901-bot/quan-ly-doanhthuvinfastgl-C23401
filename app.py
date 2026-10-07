@@ -251,11 +251,20 @@ def doc_file_cyber(file_obj):
     return cyber_keys
 
 def doc_file_db(file_obj):
-    if file_obj.name.endswith('.csv'):
+    # Đọc mượt mà cả file .csv lẫn file .xlsx
+    if file_obj.name.lower().endswith('.csv'):
         df = pd.read_csv(file_obj)
     else:
         df = pd.read_excel(file_obj)
     df.columns = [str(c).strip() for c in df.columns]
+
+    # Nhận diện nếu gặp file chi tiết (work-order-details): tự động đổi tên cột LSC
+    if 'Lệnh sửa chữa' in df.columns and 'Số lệnh sửa chữa' not in df.columns:
+        df = df.rename(columns={'Lệnh sửa chữa': 'Số lệnh sửa chữa'})
+    if 'Trạng thái LSC' in df.columns and 'Trạng thái' not in df.columns:
+        df = df.rename(columns={'Trạng thái LSC': 'Trạng thái'})
+        
+    return df
 
     # NẾU LÀ FILE MẪU DMS MỚI (work-order-details): TỰ ĐỘNG GOM DÒNG & TRỪ GIẢM GIÁ
     if 'Lệnh sửa chữa' in df.columns and ('TT chưa GG' in df.columns or 'Mô tả sản phẩm' in df.columns):
