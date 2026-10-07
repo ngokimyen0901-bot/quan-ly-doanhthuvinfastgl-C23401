@@ -279,12 +279,18 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
         ro_show = r_5114.get('Số R/O hãng', r_5114.get('Số R/O', k_match))
         thang_hd_row = r_5114.get('Thang_HD', 'Tháng 09/2026')
 
-        sub_all = df_ktv_for_sc[df_ktv_for_sc['key_match'] == k_match].copy()
+       sub_all = df_ktv_for_sc[df_ktv_for_sc['key_match'] == k_match].copy()
         if not sub_all.empty:
             bs_k = sub_all['Bien_So_Val'].iloc[0]
+            # Lọc các dòng công việc thực tế của KTV
             sub_works = sub_all[(sub_all['Ma_KTV_Clean'] != '') & (sub_all['Tien_KTV_Theo_HD'] > 0)].copy()
+            
             if not sub_works.empty:
+                # Kiểm tra nếu file đã chia sẵn tiền cho từng thợ (tổng tiền các dòng xấp xỉ bằng tiền công tổng)
                 for _, r_tho in sub_works.iterrows():
+                    # LẤY TRỰC TIẾP GIÁ TRỊ ĐÃ CHIA TỪ FILE (266.667 đ), TUYỆT ĐỐI KHÔNG CHIA TIẾP CHO SỐ THỢ
+                    tien_tho_nhan = r_tho['Tien_KTV_Theo_HD']
+                    
                     ktv_details_temp.append({
                         'Ky_Luong': thang_hd_row,
                         'key_match': k_match,
@@ -297,10 +303,27 @@ if up_5114 and (up_ktv_hd or up_ktv_lenh):
                         'Noi_Dung_CV': r_tho['Noi_Dung_Val'],
                         'Ma_KTV': r_tho['Ma_KTV_Clean'],
                         'Ten_KTV': r_tho['Ten_KTV_Clean'],
-                        'Tien_Thuc_Nhan': r_tho['Tien_KTV_Theo_HD'],
-                        'Tien_Chot_KTV': r_tho['Tien_KTV_Theo_HD'],
+                        'Tien_Thuc_Nhan': tien_tho_nhan,
+                        'Tien_Chot_KTV': tien_tho_nhan,
                         'Tien_5114': tien_5114
                     })
+            else:
+                ktv_details_temp.append({
+                    'Ky_Luong': thang_hd_row,
+                    'key_match': k_match,
+                    'Loai_Cong': 'Sửa chữa (5114)',
+                    'So_RO': ro_show,
+                    'So_HD': shd_k,
+                    'Ngay_Xuat_HD': nhd_k,
+                    'Bien_So': bs_k,
+                    'Hang_Muc': '🚨 CHƯA CÓ KTV',
+                    'Noi_Dung_CV': '🚨 LỆNH ĐÃ DUYỆT NHƯNG CHƯA CÓ TÊN KTV',
+                    'Ma_KTV': '🚨 CẦN GÁN THỢ',
+                    'Ten_KTV': '🚨 BÁO ĐỘNG THIẾU THỢ',
+                    'Tien_Thuc_Nhan': 0.0,
+                    'Tien_Chot_KTV': 0.0,
+                    'Tien_5114': tien_5114
+                })
             else:
                 ktv_details_temp.append({
                     'Ky_Luong': thang_hd_row,
