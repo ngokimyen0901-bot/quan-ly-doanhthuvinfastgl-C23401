@@ -758,7 +758,7 @@ with tab_work:
     # Cho phép xe có phần Bảo Hành Hãng vẫn hiển thị nếu có phát sinh tiền khách trả (> 0)
     mask_kh = (df_hienthi['KH thanh toán'] > 0) & (~df_hienthi['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Nội Bộ / PDI']))
     df_kh_total = df_hienthi[mask_kh]
-    df_kh_total = df_hoanthanh[mask_kh]
+    df_kh_total = df_hienthi[mask_kh]
     kh_da_hd_cnt = df_kh_total[df_kh_total['Số hóa đơn'].notna() & (~df_kh_total['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))].shape[0]
     kh_total_cnt = len(df_kh_total)
     kh_chua_hd_cnt = kh_total_cnt - kh_da_hd_cnt
