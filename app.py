@@ -712,8 +712,52 @@ with tab_work:
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
     chua_hoan_thanh_cnt = len(df_chuahoanthanh)
 
+    # ==================== PHÂN KỲ DOANH THU & CUỐN CHIẾU HÓA ĐƠN ====================
+    def xac_dinh_ky_quan_tri(row, thang_hien_hanh="Tháng 10/2026"):
+        shd = str(row.get('Số hóa đơn', '')).strip()
+        ngay_hd = row.get('Ngày xuất hóa đơn', row.get('Ngày HĐ', ''))
+        co_hd = bool(shd and shd.lower() not in ['', 'nan', 'none', '0'])
+        
+        # 1. Đã có hóa đơn -> Chốt cứng theo tháng của Ngày xuất HĐ
+        if co_hd and pd.notna(ngay_hd) and str(ngay_hd).strip() not in ['', 'nan', 'None']:
+            try:
+                d_hd = pd.to_datetime(ngay_hd, errors='coerce', dayfirst=True)
+                if pd.notna(d_hd):
+                    return d_hd.strftime("Tháng %m/%Y")
+            except Exception:
+                pass
+
+        # 2. Chưa có hóa đơn -> Tự động cuốn chiếu sang tháng hiện hành (Tháng 10) để theo dõi tiếp
+        return thang_hien_hanh
+
+    THANG_HIEN_TAI = "Tháng 10/2026"
+    df_hoanthanh['Ky_Doanh_Thu'] = df_hoanthanh.apply(lambda r: xac_dinh_ky_quan_tri(r, THANG_HIEN_TAI), axis=1)
+
+    # Tạo danh sách các tháng đổ xuống
+    danh_sach_thang = sorted(list(set([str(k) for k in df_hoanthanh['Ky_Doanh_Thu'].unique() if str(k) not in ['', 'nan', 'None']])))
+    if THANG_HIEN_TAI not in danh_sach_thang:
+        danh_sach_thang.append(THANG_HIEN_TAI)
+    danh_sach_thang = sorted(danh_sach_thang, reverse=True)
+
+    # Hộp chọn tháng
+    col_k1, _ = st.columns([4, 6])
+    with col_k1:
+        sel_thang = st.selectbox(
+            "📅 CHỌN THÁNG QUẢN TRỊ DOANH THU & HÓA ĐƠN:",
+            ["Tất cả các tháng"] + danh_sach_thang,
+            index=0
+        )
+
+    # Lọc dữ liệu theo tháng đã chọn
+    if sel_thang != "Tất cả các tháng":
+        df_hienthi = df_hoanthanh[df_hoanthanh['Ky_Doanh_Thu'] == sel_thang].copy()
+    else:
+        df_hienthi = df_hoanthanh.copy()
+    # =================================================================================
+
     # Cho phép xe có phần Bảo Hành Hãng vẫn hiển thị nếu có phát sinh tiền khách trả (> 0)
-    mask_kh = (df_hoanthanh['KH thanh toán'] > 0) & (~df_hoanthanh['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Nội Bộ / PDI']))
+    mask_kh = (df_hienthi['KH thanh toán'] > 0) & (~df_hienthi['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Nội Bộ / PDI']))
+    df_kh_total = df_hienthi[mask_kh]
     df_kh_total = df_hoanthanh[mask_kh]
     kh_da_hd_cnt = df_kh_total[df_kh_total['Số hóa đơn'].notna() & (~df_kh_total['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))].shape[0]
     kh_total_cnt = len(df_kh_total)
