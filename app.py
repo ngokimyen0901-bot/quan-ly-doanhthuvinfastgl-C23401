@@ -712,8 +712,8 @@ with tab_work:
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
     chua_hoan_thanh_cnt = len(df_chuahoanthanh)
 
-    # 1. KH Thông Thường (Loại trừ cả GSM, Bảo Hiểm, Bảo Hành Hãng, Nội Bộ)
-    mask_kh = (df_hoanthanh['KH thanh toán'] > 0) & (~df_hoanthanh['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Bảo Hành Hãng', 'Nội Bộ / PDI']))
+    # Cho phép xe có phần Bảo Hành Hãng vẫn hiển thị nếu có phát sinh tiền khách trả (> 0)
+    mask_kh = (df_hoanthanh['KH thanh toán'] > 0) & (~df_hoanthanh['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Nội Bộ / PDI']))
     df_kh_total = df_hoanthanh[mask_kh]
     kh_da_hd_cnt = df_kh_total[df_kh_total['Số hóa đơn'].notna() & (~df_kh_total['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))].shape[0]
     kh_total_cnt = len(df_kh_total)
