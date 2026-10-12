@@ -1343,15 +1343,15 @@ if is_admin:
             idx_bh_shd = next((i for i, c in enumerate(bh_cols) if any(k in c.lower() for k in ['hóa đơn', 'số hđ', 'bảng kê'])), -1)
 
             b1, b2, b3 = st.columns(3)
-            s_bh_lsc = b1.selectbox("📌 Cột Số LSC / WO:", bh_cols, index=idx_bh_lsc)
-            s_bh_tt  = b2.selectbox("📋 Cột Kiểm Tra Duyệt:", bh_cols, index=idx_bh_tt)
-            s_bh_shd = b3.selectbox("🧾 Cột Số Bảng Kê / Hóa Đơn (Tùy chọn):", [None] + bh_cols, index=idx_bh_shd + 1 if idx_bh_shd != -1 else 0)
+            s_bh_lsc = b1.selectbox("📌 Cột Số LSC / WO:", bh_cols, index=idx_bh_lsc, key="sb_bh_lsc")
+            s_bh_tt  = b2.selectbox("📋 Cột Kiểm Tra Duyệt:", bh_cols, index=idx_bh_tt, key="sb_bh_tt")
+            s_bh_shd = b3.selectbox("🧾 Cột Số Bảng Kê / Hóa Đơn (Tùy chọn):", [None] + bh_cols, index=idx_bh_shd + 1 if idx_bh_shd != -1 else 0, key="sb_bh_shd")
 
-            # Lấy trước danh sách các WO hợp lệ để xem trước
             ds_wo_preview = [str(x).strip() for x in df_bh_input[s_bh_lsc].dropna().unique() if len(str(x).strip()) > 5]
             st.write(f"🔎 Tìm thấy **{len(ds_wo_preview)} lệnh sửa chữa (WO)** hợp lệ trong bảng kê.")
 
-            if st.button("🚀 CẬP NHẬT PHÊ DUYỆT LÊN GOOGLE SHEETS", type="primary", use_container_width=True):
+            # Đặt key='btn_submit_update_bh' để không bao giờ bị lỗi trùng nút
+            if st.button("🚀 CẬP NHẬT PHÊ DUYỆT LÊN GOOGLE SHEETS", type="primary", use_container_width=True, key="btn_submit_update_bh"):
                 p_bar_bh = st.progress(0)
                 txt_bh = st.empty()
                 txt_bh.write("⏳ Đang cập nhật trạng thái phê duyệt lên MasterData...")
@@ -1380,7 +1380,6 @@ if is_admin:
                         m_idx = norm_map.get(key_core)
 
                     if m_idx is not None:
-                        # Với file bảng kê WCS/Đối soát, mặc định có dòng là đã duyệt
                         val_tt = str(r[s_bh_tt]).strip() if s_bh_tt else ''
                         if any(w in val_tt.lower() for w in ['từ chối', 'reject', 'không duyệt']):
                             norm_tt = "Từ chối"
@@ -1389,7 +1388,6 @@ if is_admin:
                         
                         df_master.at[m_idx, 'Phê duyệt bảo hành'] = norm_tt
                         
-                        # Ghi chú thêm mã bảng kê WCS nếu có
                         if s_bh_shd and pd.notna(r[s_bh_shd]):
                             val_bk = str(r[s_bh_shd]).strip()
                             if val_bk and val_bk not in ['nan', 'None']:
@@ -1408,66 +1406,6 @@ if is_admin:
                 txt_bh.empty()
                 st.success(f"✅ ĐÃ CẬP NHẬT THÀNH CÔNG! Đã đổi trạng thái sang **'Đã duyệt'** cho **{bh_updated}** lượt lệnh trên Google Sheets.")
                 st.rerun()
-        
-        if up_bh_file:
-            df_bh_input = doc_file_db(up_bh_file)
-            bh_cols = list(df_bh_input.columns)
-            b1, b2, b3, b4 = st.columns(4)
-            
-            idx_bh_lsc = next((i for i, c in enumerate(bh_cols) if any(k in c.lower() for k in ['lệnh', 'lsc', 'ro'])), 0)
-            idx_bh_tt = next((i for i, c in enumerate(bh_cols) if any(k in c.lower() for k in ['duyệt', 'trạng thái', 'status'])), 0)
-            idx_bh_shd = next((i for i, c in enumerate(bh_cols) if any(k in c.lower() for k in ['hóa đơn', 'số hđ'])), 0)
-            idx_bh_nhd = next((i for i, c in enumerate(bh_cols) if any(k in c.lower() for k in ['ngày'])), 0)
-
-            s_bh_lsc = b1.selectbox("Cột Số LSC:", bh_cols, index=idx_bh_lsc)
-            s_bh_tt  = b2.selectbox("Cột Trạng Thái Duyệt:", bh_cols, index=idx_bh_tt)
-            s_bh_shd = b3.selectbox("Cột Số Hóa Đơn:", [None] + bh_cols, index=idx_bh_shd + 1 if idx_bh_shd != 0 else 0)
-            s_bh_nhd = b4.selectbox("Cột Ngày Hóa Đơn:", [None] + bh_cols, index=idx_bh_nhd + 1 if idx_bh_nhd != 0 else 0)
-
-            if st.button("🚀 CẬP NHẬT PHÊ DUYỆT LÊN GOOGLE SHEETS", type="primary", use_container_width=True):
-                p_bar_bh = st.progress(0)
-                txt_bh = st.empty()
-                txt_bh.write("⏳ Đang đối soát danh sách bảo hành...")
-
-                df_master = df_master.reset_index(drop=True)
-                norm_map = {norm_lsc_key(lsc): idx for idx, lsc in enumerate(df_master['Số lệnh sửa chữa'])}
-                
-                bh_updated = 0
-                total_bh_rows = len(df_bh_input)
-
-                for r_i, (_, r) in enumerate(df_bh_input.iterrows()):
-                    key_norm = norm_lsc_key(r[s_bh_lsc])
-                    if not key_norm:
-                        continue
-                    m_idx = norm_map.get(key_norm)
-
-                    if m_idx is not None:
-                        val_tt = str(r[s_bh_tt]).strip()
-                        if any(w in val_tt.lower() for w in ['đã duyệt', 'duyệt', 'approved', 'pass', 'ok']):
-                            norm_tt = "Đã duyệt"
-                        elif any(w in val_tt.lower() for w in ['từ chối', 'reject', 'không duyệt']):
-                            norm_tt = "Từ chối"
-                        else:
-                            norm_tt = "Chờ duyệt"
-                        
-                        df_master.iloc[m_idx, df_master.columns.get_loc('Phê duyệt bảo hành')] = norm_tt
-                        
-                        if s_bh_shd and pd.notna(r[s_bh_shd]):
-                            df_master.iloc[m_idx, df_master.columns.get_loc('Số hóa đơn')] = str(r[s_bh_shd]).strip()
-                        if s_bh_nhd and pd.notna(r[s_bh_nhd]):
-                            df_master.iloc[m_idx, df_master.columns.get_loc('Ngày xuất hóa đơn')] = clean_ngay_chuan(r[s_bh_nhd])
-                        bh_updated += 1
-                        
-                    if r_i % 30 == 0:
-                        pct = int((r_i / total_bh_rows) * 90)
-                        p_bar_bh.progress(pct)
-
-                save_data_to_gsheets(df_master)
-                p_bar_bh.progress(100)
-                txt_bh.empty()
-                st.success(f"✅ ĐÃ CẬP NHẬT LÊN GOOGLE SHEETS cho **{bh_updated}** lệnh bảo hành.")
-                st.rerun()
-
     # TAB 5: QUẢN LÝ CÔNG NỢ GSM (ĐỌC TỪ SHEET GSM_List)
     with tab_gsm_import:
         st.subheader("🚕 Quản Lý Công Nợ GSM (Đồng Bộ Google Sheets)")
