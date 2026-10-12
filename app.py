@@ -1314,7 +1314,100 @@ if is_admin:
     # TAB 4: IMPORT BẢO HÀNH
     with tab_bh_import:
         st.subheader("🛡️ Import Danh Sách Phê Duyệt Bảo Hành Hãng Tự Động")
+        st.info("💡 Hệ thống tự động nhận diện sheet **Chi tiết_Đối soát** và cột **WO** để cập nhật trạng thái **Đã duyệt**.")
         up_bh_file = st.file_uploader("Tải file duyệt bảo hành (XLSX / CSV)", type=['csv', 'xlsx'], key='up_bh_file')
+        
+        if up_bh_file:
+            # 1. TỰ ĐỘNG CHỌN ĐÚNG SHEET CHI TIẾT
+            if up_bh_file.name.lower().endswith('.csv'):
+                df_bh_input = pd.read_csv(up_bh_file)
+            else:
+                xls_bh = pd.ExcelFile(up_bh_file)
+                target_sheet = xls_bh.sheet_names[0]
+                for s in xls_bh.sheet_names:
+                    if any(k in s.lower() for k in ['chi tiết', 'đối soát', 'claim', 'active', 'wcs']):
+                        target_sheet = s
+                        break
+                df_bh_input = pd.read_excel(xls_bh, sheet_name=target_sheet)
+
+            df_bh_input.columns = [str(c).strip() for c in df_bh_input.columns]
+
+            # 2. TỰ ĐỘNG NHẬN DIỆN CỘT WO (SỐ LỆNH)
+            col_wo_found = next((c for c in df_bh_input.columns if c.upper() in ['WO', 'SỐ LSC', 'LỆNH SỬA CHỮA', 'SỐ LỆNH SỬA CHỮA', 'RO HÃNG']), None)
+            if not col_wo_found:
+                col_wo_found = df_bh_input.columns[0]
+
+            bh_cols = list(df_bh_input.columns)
+            idx_bh_lsc = bh_cols.index(col_wo_found) if col_wo_found in bh_cols else 0
+            idx_bh_tt = next((i for i, c in enumerate(bh_cols) if any(k in c.lower() for k in ['approved', 'duyệt', 'trạng thái', 'status'])), 0)
+            idx_bh_shd = next((i for i, c in enumerate(bh_cols) if any(k in c.lower() for k in ['hóa đơn', 'số hđ', 'bảng kê'])), -1)
+
+            b1, b2, b3 = st.columns(3)
+            s_bh_lsc = b1.selectbox("📌 Cột Số LSC / WO:", bh_cols, index=idx_bh_lsc)
+            s_bh_tt  = b2.selectbox("📋 Cột Kiểm Tra Duyệt:", bh_cols, index=idx_bh_tt)
+            s_bh_shd = b3.selectbox("🧾 Cột Số Bảng Kê / Hóa Đơn (Tùy chọn):", [None] + bh_cols, index=idx_bh_shd + 1 if idx_bh_shd != -1 else 0)
+
+            # Lấy trước danh sách các WO hợp lệ để xem trước
+            ds_wo_preview = [str(x).strip() for x in df_bh_input[s_bh_lsc].dropna().unique() if len(str(x).strip()) > 5]
+            st.write(f"🔎 Tìm thấy **{len(ds_wo_preview)} lệnh sửa chữa (WO)** hợp lệ trong bảng kê.")
+
+            if st.button("🚀 CẬP NHẬT PHÊ DUYỆT LÊN GOOGLE SHEETS", type="primary", use_container_width=True):
+                p_bar_bh = st.progress(0)
+                txt_bh = st.empty()
+                txt_bh.write("⏳ Đang cập nhật trạng thái phê duyệt lên MasterData...")
+
+                df_master = df_master.reset_index(drop=True)
+                norm_map = {}
+                for idx, lsc in enumerate(df_master['Số lệnh sửa chữa']):
+                    norm_map[norm_lsc_key(lsc)] = idx
+                    c_key = lay_loi_ma_wo(lsc)
+                    if c_key:
+                        norm_map[c_key] = idx
+                
+                bh_updated = 0
+                total_bh_rows = len(df_bh_input)
+
+                for r_i, (_, r) in enumerate(df_bh_input.iterrows()):
+                    raw_wo = str(r[s_bh_lsc]).strip()
+                    key_norm = norm_lsc_key(raw_wo)
+                    key_core = lay_loi_ma_wo(raw_wo)
+
+                    if not key_norm:
+                        continue
+                        
+                    m_idx = norm_map.get(key_norm)
+                    if m_idx is None and key_core:
+                        m_idx = norm_map.get(key_core)
+
+                    if m_idx is not None:
+                        # Với file bảng kê WCS/Đối soát, mặc định có dòng là đã duyệt
+                        val_tt = str(r[s_bh_tt]).strip() if s_bh_tt else ''
+                        if any(w in val_tt.lower() for w in ['từ chối', 'reject', 'không duyệt']):
+                            norm_tt = "Từ chối"
+                        else:
+                            norm_tt = "Đã duyệt"
+                        
+                        df_master.at[m_idx, 'Phê duyệt bảo hành'] = norm_tt
+                        
+                        # Ghi chú thêm mã bảng kê WCS nếu có
+                        if s_bh_shd and pd.notna(r[s_bh_shd]):
+                            val_bk = str(r[s_bh_shd]).strip()
+                            if val_bk and val_bk not in ['nan', 'None']:
+                                cur_gc = str(df_master.at[m_idx, 'Ghi chú']).strip()
+                                if val_bk not in cur_gc:
+                                    df_master.at[m_idx, 'Ghi chú'] = f"{cur_gc} | Bảng kê: {val_bk}".strip(" |")
+
+                        bh_updated += 1
+                        
+                    if r_i % 30 == 0:
+                        pct = int((r_i / max(total_bh_rows, 1)) * 90)
+                        p_bar_bh.progress(pct)
+
+                save_data_to_gsheets(df_master)
+                p_bar_bh.progress(100)
+                txt_bh.empty()
+                st.success(f"✅ ĐÃ CẬP NHẬT THÀNH CÔNG! Đã đổi trạng thái sang **'Đã duyệt'** cho **{bh_updated}** lượt lệnh trên Google Sheets.")
+                st.rerun()
         
         if up_bh_file:
             df_bh_input = doc_file_db(up_bh_file)
