@@ -1096,7 +1096,6 @@ if is_admin:
                 df_inc['Số lệnh sửa chữa'] = df_inc['Số lệnh sửa chữa'].astype(str).apply(clean_lsc_giu_gach)
 
                 # 1. LẤY GIÁ CUỐI CÙNG SAU KHI ĐÃ TRỪ HẾT GIẢM GIÁ
-                # Tổng sau chiết khấu = Tổng trước chiết khấu - Chiết khấu đại lý
                 mask_co_ck = (df_inc['Tổng trước chiết khấu'] > 0) & (df_inc['Chiết khấu đại lý'] > 0)
                 df_inc.loc[mask_co_ck, 'Tổng sau chiết khấu'] = df_inc.loc[mask_co_ck, 'Tổng trước chiết khấu'] - df_inc.loc[mask_co_ck, 'Chiết khấu đại lý']
 
@@ -1110,9 +1109,9 @@ if is_admin:
                     if bh_hang > 0:
                         return "Bảo Hành Hãng"      # W
                     elif bh > 0:
-                        return "Bảo Hiểm"           # I
+                        return "Bảo Hiểm"            # I
                     elif noi_bo > 0:
-                        return "Nội Bộ / PDI"       # P
+                        return "Nội Bộ / PDI"        # P
                     elif kh > 0:
                         return "KH Thông Thường"    # C
                     return "KH Thông Thường"
@@ -1141,6 +1140,14 @@ if is_admin:
                 status_updated_cnt = 0
                 total_inc = len(df_inc)
 
+                # Danh sách các cột kế toán được bảo vệ tuyệt đối
+                COT_BAO_VE = [
+                    'Số hóa đơn', 'Số HĐ', 
+                    'Ngày xuất hóa đơn', 'Ngày xuất hoá đơn', 'Ngày HĐ', 
+                    'Tiền HĐ', 'Giá trị xuất hóa đơn', 
+                    'Ghi chú'
+                ]
+
                 for i, (_, row) in enumerate(df_inc.iterrows()):
                     lsc = row['Số lệnh sửa chữa']
                     k_norm = norm_lsc_key(lsc)
@@ -1152,27 +1159,25 @@ if is_admin:
                     else:
                         m_idx = master_norm_map[k_norm]
                         old_status = str(df_master.at[m_idx, 'Trạng thái'])
-                        new_status = str(row['Trạng thái'])
-                        if old_status != new_status:
+                        new_status = str(row.get('Trạng thái', ''))
+                        if new_status and new_status not in ['nan', 'None'] and old_status != new_status:
                             df_master.at[m_idx, 'Trạng thái'] = new_status
                             status_updated_cnt += 1
                         
-                        # Cập nhật số tiền và thông tin an toàn qua .at (Không dùng .iloc)
+                        # Cập nhật số tiền mới nhất
                         for col in COT_TIEN:
                             if col in df_master.columns and col in row:
                                 df_master.at[m_idx, col] = float(row[col])
-                                
-                        for col_info in ['Thời gian đóng LSC', 'Xe GSM', 'Phân loại KH', 'Phê duyệt bảo hành']:
-                            if col_info in df_master.columns and col_info in row and str(row[col_info]).strip() not in ['', 'nan', 'None']:
-                                df_master.at[m_idx, col_info] = str(row[col_info])
 
-                        # Bổ sung Biển số, Tên KH, CVDV nếu master bị thiếu
-                        for col_txt in ['Biển số', 'Cố vấn dịch vụ', 'Tên khách hàng']:
-                            if col_txt in df_master.columns and col_txt in row:
-                                val_cur = str(df_master.at[m_idx, col_txt]).strip()
-                                val_new = str(row[col_txt]).strip()
-                                if (not val_cur or val_cur in ['nan', 'None']) and val_new and val_new not in ['nan', 'None']:
-                                    df_master.at[m_idx, col_txt] = val_new
+                        # Cập nhật thông tin mới (Biển số mới, CVDV mới, Tên KH, Thời gian đóng...)
+                        # BỎ QUA các cột Hóa đơn để không bao giờ bị đè mất
+                        for col in df_inc.columns:
+                            if col in COT_BAO_VE or col in COT_TIEN or col == 'Số lệnh sửa chữa':
+                                continue
+                            if col in df_master.columns:
+                                val_new = str(row[col]).strip()
+                                if val_new and val_new not in ['nan', 'None']:
+                                    df_master.at[m_idx, col] = row[col]
                     
                     if i % 30 == 0:
                         pct = int(10 + (i / max(total_inc, 1)) * 80)
