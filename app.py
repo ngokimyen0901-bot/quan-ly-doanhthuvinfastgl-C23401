@@ -1089,7 +1089,7 @@ if is_admin:
         # THÊM NÚT BẤM TỰ ĐỘNG TẠI ĐÂY:
         col_btn_auto_vf, _ = st.columns([4, 6])
         with col_btn_auto_vf:
-col_btn_auto_vf, col_cfg_vf = st.columns([4, 4])
+  col_btn_auto_vf, col_cfg_vf = st.columns([4, 4])
         with col_btn_auto_vf:
             btn_run_vf = st.button("⚡ TỰ ĐỘNG KÉO TỪ VINFAST & ĐỒNG BỘ NGAY", type="primary", use_container_width=True, key="btn_auto_pull_vinfast")
         with col_cfg_vf:
