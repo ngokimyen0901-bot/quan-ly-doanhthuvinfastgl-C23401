@@ -159,21 +159,30 @@ def chay_bot():
             btn_export = page.locator("button:has-text('Xuất dữ liệu')").first
             btn_export.wait_for(state="visible", timeout=20000)
 
-            with page.expect_download(timeout=60000) as download_info:
-                btn_export.click()
-                time.sleep(2)
+            # Bấm nút [Xuất dữ liệu] để mở bảng điều khiển
+        btn_export.click()
+        time.sleep(3)
 
-                # Kiểm tra Popup Modal chọn đại lý (nếu có popup hiện lên)
-                modal = page.locator(".ant-modal, .modal, div[role='dialog']").first
-                if modal.is_visible():
-                    print("📌 Đang tick chọn đại lý trong Modal...")
-                    cb = modal.locator("input[type='checkbox']").first
-                    if cb.count() > 0 and not cb.is_checked():
-                        cb.check()
-                    time.sleep(0.5)
-                    modal.locator("button:has-text('Xác nhận'), button:has-text('Đồng ý'), button:has-text('Tải xuống'), button:has-text('Xuất')").first.click()
+        # Chờ bảng xuất dữ liệu (Modal) hiện lên
+        modal = page.locator(".ant-modal, .modal, div[role='dialog']").first
+        if modal.is_visible():
+            print("📌 Đang xử lý trong bảng xuất dữ liệu...")
+            # Tick chọn đại lý nếu chưa được chọn
+            cb = modal.locator("input[type='checkbox']").first
+            if cb.count() > 0 and not cb.is_checked():
+                cb.check()
+                time.sleep(1)
 
-            download = download_info.value
+        # Chờ nút "Tải file xuống" màu xanh xuất hiện khi file tạo xong
+        print("⏳ Đang chờ và bấm nút 'Tải file xuống'...")
+        btn_download = page.locator("button:has-text('Tải file xuống'), button:has-text('Tải xuống')").last
+        btn_download.wait_for(state="visible", timeout=45000)
+
+        # Bắt luồng tải file về máy
+        with page.expect_download(timeout=60000) as download_info:
+            btn_download.click()
+
+        download = download_info.value
             
             # 4. Lưu đúng file database.xlsx vào thư mục chạy app
             filepath_final = os.path.join(BASE_DIR, "database.xlsx")
