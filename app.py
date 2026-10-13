@@ -1468,6 +1468,22 @@ if is_admin:
     # TAB 6: ĐỐI SOÁT CYBER
     with tab_cyber:
         st.subheader("🔍 Đối Soát Lệnh Đã Hoàn Thành Chưa Up Lên Phần Mềm Cyber")
+        # THÊM NÚT BẤM TỰ ĐỘNG TẠI ĐÂY:
+        col_btn_auto_cy, _ = st.columns([4, 6])
+        with col_btn_auto_cy:
+            if st.button("⚡ TỰ ĐỘNG LẤY DỮ LIỆU TỪ CYBER ENTERPRISE", type="primary", use_container_width=True, key="btn_auto_pull_cy"):
+                with st.spinner("⏳ Đang kết nối Cyber Enterprise 9.0 để xuất báo cáo..."):
+                    if bot_cyber:
+                        res_cy = bot_cyber.tu_dong_xuat_bao_cao_cyber()
+                        if res_cy.get("success"):
+                            st.session_state["auto_cyber_file"] = res_cy.get("file_path")
+                            st.success(res_cy.get("message"))
+                            st.rerun()
+                        else:
+                            st.error(res_cy.get("message"))
+                    else:
+                        st.error("Chưa nạp module bot_cyber.py!")
+        st.markdown("---")
         up_cyber_file = st.file_uploader("Tải lên file BẢNG TỔNG HỢP LỆNH SỬA CHỮA từ Cyber (Excel)", type=['xlsx', 'xls', 'csv'], key='up_cyber_file')
         
         if up_cyber_file:
