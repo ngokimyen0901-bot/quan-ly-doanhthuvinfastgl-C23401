@@ -7,6 +7,9 @@ import time
 import base64
 import hashlib
 import openpyxl
+import sys
+import json
+import subprocess
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from streamlit_gsheets import GSheetsConnection
@@ -684,6 +687,44 @@ with st.sidebar:
 # --- GIAO DIỆN CHÍNH ---
 st.title("🚗 Quản Trị Dịch Vụ, Hóa Đơn & Đối Soát Cyber")
 st.caption("☁️ **Lưu trữ đám mây:** Kết nối trực tiếp Google Sheets. Hoạt động từ **29/08/2026**.")
+DUONG_DAN_THU_MUC = os.path.dirname(os.path.abspath(__file__))
+FILE_LOG_SYNC = os.path.join(DUONG_DAN_THU_MUC, "last_sync.json")
+FILE_BOT_DMS = os.path.join(DUONG_DAN_THU_MUC, "bot_vinfast_dms.py")
+
+def doc_log_dong_bo():
+    if os.path.exists(FILE_LOG_SYNC):
+        try:
+            with open(FILE_LOG_SYNC, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+# CỬA SỔ POPUP BÁO KẾT QUẢ ĐỒNG BỘ
+@st.dialog("🔔 THÔNG TIN ĐỒNG BỘ DỮ LIỆU DMS VINFAST")
+def hien_thi_popup_dong_bo(log_data):
+    if log_data:
+        st.success(f"🟢 **Trạng thái:** {log_data.get('trang_thai', 'Thành công')}")
+        st.markdown(f"⏰ **Thời gian cập nhật:** `{log_data.get('thoi_gian', 'Chưa rõ')}`")
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Lệnh mới thêm", f"+{log_data.get('so_lenh_moi', 0)}")
+        c2.metric("Lệnh cập nhật", f"{log_data.get('so_lenh_cap_nhat', 0)}")
+        c3.metric("Tổng MasterData", f"{log_data.get('tong_so_lenh', 0):,}")
+        
+        st.caption("ℹ️ Dữ liệu đã được ghi đè vào file `database.xlsx` và nạp thẳng lên Google Sheets.")
+    else:
+        st.warning("Chưa có lịch sử đồng bộ dữ liệu tự động.")
+        
+    if st.button("Đã hiểu & Đóng", type="primary", use_container_width=True):
+        st.rerun()
+
+# Tự động bật Popup 1 lần duy nhất khi bạn vừa vào Web
+if st.session_state.get("logged_in", False) and "da_xem_popup_dms" not in st.session_state:
+    st.session_state.da_xem_popup_dms = True
+    log_khoi_dong = doc_log_dong_bo()
+    if log_khoi_dong:
+        hien_thi_popup_dong_bo(log_khoi_dong)
 import json
 import os
 
@@ -1096,6 +1137,38 @@ with tab_work:
 if is_admin:
     # TAB 2: NẠP DỮ LIỆU DMS
     with tab_import:
+        # ==========================================================
+        # KHU VỰC TỰ ĐỘNG HÓA KÉO LỆNH TỪ VINFAST DMS
+        # ==========================================================
+        st.markdown("### 🤖 Tự Động Hóa Kéo Lệnh DMS VinFast")
+        
+        col_btn, col_info = st.columns([1, 2])
+        
+        with col_btn:
+            if st.button("⚡ ĐỒNG BỘ DMS NGAY BÂY GIỜ", type="primary", use_container_width=True):
+                with st.spinner("Đang mở trình duyệt lấy file từ VinFast DMS... Bạn hãy nhìn cửa sổ Chrome đang chạy trên màn hình!"):
+                    # Kích hoạt bot chạy độc lập
+                    tien_trinh = subprocess.run([sys.executable, FILE_BOT_DMS], capture_output=True, text=True)
+                    
+                    # Đọc lại nhật ký sau khi bot chạy xong
+                    log_moi = doc_log_dong_bo()
+                    if log_moi and "Thành công" in log_moi.get("trang_thai", ""):
+                        st.toast("✅ Đã kéo lệnh và cập nhật Google Sheets thành công!")
+                        hien_thi_popup_dong_bo(log_moi)
+                    else:
+                        st.error("Có lỗi trong quá trình kéo lệnh. Hãy kiểm tra lại cửa sổ trình duyệt!")
+
+        with col_info:
+            log_hien_tai = doc_log_dong_bo()
+            if log_hien_tai:
+                st.info(
+                    f"📅 **Lần cập nhật gần nhất:** `{log_hien_tai.get('thoi_gian')}`\n\n"
+                    f"➕ Thêm mới: **+{log_hien_tai.get('so_lenh_moi')}** lệnh | 🔄 Cập nhật: **{log_hien_tai.get('so_lenh_cap_nhat')}** lệnh"
+                )
+            else:
+                st.info("ℹ️ Hệ thống chưa có dữ liệu đồng bộ tự động trước đó.")
+
+        st.divider()
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
         st.info("💡 Tự động lấy giá cuối cùng sau chiết khấu và tự động phân loại C, W, I theo số tiền thanh toán thực tế.")
         up_db = st.file_uploader("Kéo thả file Database mới vào đây (.xlsx hoặc .csv)", type=['csv', 'xlsx'], key='up_dms')
