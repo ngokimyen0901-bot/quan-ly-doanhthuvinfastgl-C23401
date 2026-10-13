@@ -11,12 +11,11 @@ PROFILE_DIR = os.path.join(BASE_DIR, "browser_profile_vinfast")
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# URL mục tiêu
+# URL mục tiêu chốt mốc dữ liệu
 NGAY_BAT_DAU = "2026-08-29"
 
 def lay_url_theo_ngay():
     hom_nay = datetime.datetime.now().strftime("%Y-%m-%d")
-    # Tự động gắn ngày bắt đầu 2026-08-29 và ngày kết thúc là hôm nay vào URL
     return f"https://dealer-portal.vinfast.com/dealer/aftersales/work-orders#woDatePreset=CUSTOM&woFrom={NGAY_BAT_DAU}&woLimit=20&woPage=1&woTo={hom_nay}"
 
 def ghi_nhat_ky(new_cnt, upd_cnt, tot_cnt, trang_thai="Thành công"):
@@ -34,7 +33,7 @@ def ghi_nhat_ky(new_cnt, upd_cnt, tot_cnt, trang_thai="Thành công"):
     print(f"✅ Đã ghi nhận lịch sử đồng bộ lúc: {thoi_gian_hien_tai}")
 
 def nap_du_lieu_vao_master(filepath_excel):
-    """Sử dụng chính xác logic của app.py để nạp dữ liệu và đẩy lên Google Sheets"""
+    """Sử dụng logic của app.py để nạp dữ liệu và đẩy lên Google Sheets"""
     try:
         from app import load_data_from_gsheets, save_data_to_gsheets, doc_file_db, clean_lsc_giu_gach, norm_lsc_key, clean_tien_series, COT_TIEN, TAT_CA_COT
         
@@ -53,7 +52,7 @@ def nap_du_lieu_vao_master(filepath_excel):
 
         df_inc['Số lệnh sửa chữa'] = df_inc['Số lệnh sửa chữa'].astype(str).apply(clean_lsc_giu_gach)
 
-        # Phân loại C, W, I, P
+        # Tự động phân loại luồng
         def phan_loai_theo_tien(r):
             if float(r.get('BH hãng thanh toán', 0) or 0) > 0: return "Bảo Hành Hãng"
             if float(r.get('BH thanh toán', 0) or 0) > 0: return "Bảo Hiểm"
@@ -111,6 +110,8 @@ def chay_bot():
     print(f"🔗 URL: {url_target}")
     print("=" * 60)
 
+    filepath_final = None
+
     with sync_playwright() as p:
         browser = p.chromium.launch_persistent_context(
             user_data_dir=PROFILE_DIR,
@@ -128,80 +129,73 @@ def chay_bot():
         if "work-orders" not in page.url:
             print("🧭 Đang điều hướng từ Menu vào 'Báo giá & sửa chữa -> Lệnh sửa chữa'...")
             try:
-                # Bấm menu Hậu mãi ở thanh trên (nếu có)
                 menu_hm = page.locator("text='Hậu mãi'")
                 if menu_hm.is_visible():
                     menu_hm.click()
                     time.sleep(1)
 
-                # Mở nhóm 'Báo giá & sửa chữa'
                 nhom_bg = page.locator("text='Báo giá & sửa chữa'")
                 if nhom_bg.is_visible():
                     nhom_bg.click()
                     time.sleep(1)
 
-                # Bấm mục con 'Lệnh sửa chữa'
                 item_lsc = page.locator("text='Lệnh sửa chữa'").first
                 item_lsc.click()
                 time.sleep(3)
             except Exception as e:
                 print(f"Lưu ý điều hướng menu: {e}")
 
-        # Đảm bảo trang đã nạp xong danh sách
+        # Đảm bảo trang đã nạp xong
         page.wait_for_load_state("networkidle")
         time.sleep(2)
 
-        # 3. Bấm nút [Xuất dữ liệu]
-        filepath_final = None
-        print("📥 Đang tìm và bấm nút 'Xuất dữ liệu'...")
+        # 3. Thao tác Xuất dữ liệu và Tải file
         try:
-            # Chọn chính xác nút 'Xuất dữ liệu' (bên cạnh nút Xóa lọc và Xuất chi tiết)
+            print("📥 Đang tìm và bấm nút 'Xuất dữ liệu'...")
             btn_export = page.locator("button:has-text('Xuất dữ liệu')").first
-            btn_export.wait_for(state="visible", timeout=20000)
+            btn_export.wait_for(state="visible", timeout=25000)
+            btn_export.click()
+            time.sleep(3)
 
-            # Bấm nút [Xuất dữ liệu] để mở bảng điều khiển
-        btn_export.click()
-        time.sleep(3)
+            # Kiểm tra Modal xuất dữ liệu
+            modal = page.locator(".ant-modal, .modal, div[role='dialog']").first
+            if modal.is_visible():
+                print("📌 Đang xử lý tick chọn đại lý trong Modal...")
+                cb = modal.locator("input[type='checkbox']").first
+                if cb.count() > 0 and not cb.is_checked():
+                    cb.check()
+                    time.sleep(1)
 
-        # Chờ bảng xuất dữ liệu (Modal) hiện lên
-        modal = page.locator(".ant-modal, .modal, div[role='dialog']").first
-        if modal.is_visible():
-            print("📌 Đang xử lý trong bảng xuất dữ liệu...")
-            # Tick chọn đại lý nếu chưa được chọn
-            cb = modal.locator("input[type='checkbox']").first
-            if cb.count() > 0 and not cb.is_checked():
-                cb.check()
-                time.sleep(1)
+            # Chờ file tạo xong và xuất hiện nút 'Tải file xuống'
+            print("⏳ Đang chờ hệ thống tạo file và bấm nút 'Tải file xuống'...")
+            btn_download = page.locator("button:has-text('Tải file xuống'), button:has-text('Tải xuống')").last
+            btn_download.wait_for(state="visible", timeout=60000)
+            btn_download.scroll_into_view_if_needed()
 
-        # Chờ nút "Tải file xuống" màu xanh xuất hiện khi file tạo xong
-        print("⏳ Đang chờ và bấm nút 'Tải file xuống'...")
-        btn_download = page.locator("button:has-text('Tải file xuống'), button:has-text('Tải xuống')").last
-        btn_download.wait_for(state="visible", timeout=45000)
+            # Bắt luồng tải file về máy
+            with page.expect_download(timeout=60000) as download_info:
+                btn_download.click(force=True)
 
-        # Bắt luồng tải file về máy
-        with page.expect_download(timeout=60000) as download_info:
-            btn_download.click()
-
-        download = download_info.value
+            download = download_info.value
             
-            # 4. Lưu đúng file database.xlsx vào thư mục chạy app
+            # Lưu đè vào file database.xlsx trong thư mục dự án
             filepath_final = os.path.join(BASE_DIR, "database.xlsx")
             download.save_as(filepath_final)
             print(f"💾 ĐÃ TẢI VÀ LƯU THÀNH CÔNG: {filepath_final}")
 
         except Exception as e:
-            print(f"⚠️ Lỗi khi bấm xuất file: {e}")
+            print(f"⚠️ Lỗi khi xuất và tải file: {e}")
 
         browser.close()
 
-    # 5. Nạp trực tiếp vào Google Sheets
+    # 4. Nạp trực tiếp vào Google Sheets
     if filepath_final and os.path.exists(filepath_final):
         print("🔄 Đang đẩy số liệu vào Google Sheets (MasterData)...")
         new_cnt, upd_cnt, tot_cnt = nap_du_lieu_vao_master(filepath_final)
         if new_cnt >= 0:
             ghi_nhat_ky(new_cnt, upd_cnt, tot_cnt, trang_thai="Thành công")
             print("=" * 60)
-            print(f"🎉 HOÀN THÀNH TOÀN BỘ TIẾN TRÌNH:")
+            print("🎉 HOÀN THÀNH TOÀN BỘ TIẾN TRÌNH:")
             print(f" - Lệnh mới: +{new_cnt}")
             print(f" - Lệnh cập nhật: {upd_cnt}")
             print(f" - Tổng dữ liệu Google Sheets: {tot_cnt}")
