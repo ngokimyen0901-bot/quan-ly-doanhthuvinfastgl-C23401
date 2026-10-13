@@ -684,6 +684,26 @@ with st.sidebar:
 # --- GIAO DIỆN CHÍNH ---
 st.title("🚗 Quản Trị Dịch Vụ, Hóa Đơn & Đối Soát Cyber")
 st.caption("☁️ **Lưu trữ đám mây:** Kết nối trực tiếp Google Sheets. Hoạt động từ **29/08/2026**.")
+import json
+import os
+
+# Đọc thời gian cập nhật gần nhất từ file last_sync.json
+def lay_thoi_gian_cap_nhat():
+    file_log = "last_sync.json"
+    if os.path.exists(file_log):
+        try:
+            with open(file_log, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+info_sync = lay_thoi_gian_cap_nhat()
+
+# Nếu có dữ liệu, hiện một thanh màu xanh thông báo ngay trên đầu trang
+if info_sync:
+    st.info(f"🔄 **Dữ liệu DMS VinFast đã cập nhật đến:** **{info_sync.get('thoi_gian', 'Chưa rõ')}** "
+            f"(Lệnh mới: +{info_sync.get('so_lenh_moi', 0)} | Cập nhật: {info_sync.get('so_lenh_cap_nhat', 0)} lệnh)")
 
 df_master = load_data_from_gsheets()
 
