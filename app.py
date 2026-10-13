@@ -1086,6 +1086,18 @@ if is_admin:
     with tab_import:
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
         st.info("💡 Tự động lấy giá cuối cùng sau chiết khấu và tự động phân loại C, W, I theo số tiền thanh toán thực tế.")
+        # THÊM NÚT BẤM TỰ ĐỘNG TẠI ĐÂY:
+        col_btn_auto_vf, _ = st.columns([4, 6])
+        with col_btn_auto_vf:
+            if st.button("⚡ TỰ ĐỘNG KÉO TỪ VINFAST & ĐỒNG BỘ NGAY", type="primary", use_container_width=True, key="btn_auto_pull_vf"):
+                with st.spinner("⏳ Đang kết nối VinFast và kéo dữ liệu mới nhất..."):
+                    if scheduler_vinfast:
+                        scheduler_vinfast.chay_tien_trinh_dong_bo()
+                        st.success("✅ Đã hoàn tất đồng bộ tự động từ VinFast!")
+                        st.rerun()
+                    else:
+                        st.error("Chưa nạp module scheduler_vinfast.py!")
+        st.markdown("---")
         up_db = st.file_uploader("Kéo thả file Database mới vào đây (.xlsx hoặc .csv)", type=['csv', 'xlsx'], key='up_dms')
 
         if up_db:
