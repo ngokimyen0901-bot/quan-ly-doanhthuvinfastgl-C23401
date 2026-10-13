@@ -10,15 +10,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from streamlit_gsheets import GSheetsConnection
-# THÊM MỚI ĐOẠN NÀY VÀO ĐẦU FILE:
-try:
-    import bot_vinfast
-    import bot_cyber
-    import scheduler_vinfast
-except Exception:
-    bot_vinfast = None
-    bot_cyber = None
-    scheduler_vinfast = None
+
 st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗", layout="wide")
 
 st.markdown("""
@@ -1086,35 +1078,7 @@ if is_admin:
     with tab_import:
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
         st.info("💡 Tự động lấy giá cuối cùng sau chiết khấu và tự động phân loại C, W, I theo số tiền thanh toán thực tế.")
-        # THÊM NÚT BẤM TỰ ĐỘNG TẠI ĐÂY:
-            col_btn_auto_vf, col_cfg_vf = st.columns([4, 4])
-            with col_btn_auto_vf:
-                btn_run_vf = st.button("⚡ TỰ ĐỘNG KÉO TỪ VINFAST & ĐỒNG BỘ NGAY", type="primary", use_container_width=True, key="btn_auto_pull_vinfast")
-            with col_cfg_vf:
-                show_browser = st.checkbox("🖥️ Hiển thị màn hình Chrome khi chạy (để quan sát)", value=True, key="chk_show_chrome")
-
-        if btn_run_vf:
-            if scheduler_vinfast:
-                with st.status("🚀 Đang chạy Bot tự động kéo dữ liệu VinFast...", expanded=True) as status_box:
-                    st.write("🌐 [1/3] Đang kết nối VinFast, tìm ô [Ngày tạo] và tải file database.xlsx...")
-                    res = scheduler_vinfast.chay_tien_trinh_dong_bo(headless=(not show_browser))
-                    
-                    if res.get("success"):
-                        st.write("📊 [2/3] Đã tải xong file và đồng bộ thành công vào Google Sheets!")
-                        st.write("📱 [3/3] Đã gửi thông báo kết quả qua Telegram / Zalo.")
-                        status_box.update(label="🎉 HOÀN TẤT ĐỒNG BỘ THÀNH CÔNG!", state="complete", expanded=True)
-                        st.success(
-                            f"✅ **Đã đồng bộ xong!** Thêm mới: **{res.get('new_records', 0)}** lệnh | "
-                            f"Cập nhật: **{res.get('updated_records', 0)}** lệnh | "
-                            f"Tổng số: **{res.get('total_records', 0)}** lệnh trên Google Sheets."
-                        )
-                        st.balloons()
-                    else:
-                        err_msg = res.get("message", "Lỗi không xác định")
-                        status_box.update(label="❌ Chưa hoàn thành chu trình!", state="error", expanded=True)
-                        st.error(f"⚠️ **Thông báo lỗi từ hệ thống:** {err_msg}")
-            else:
-                st.error("❌ Chưa nạp module scheduler_vinfast.py. Hãy đảm bảo file scheduler_vinfast.py nằm cùng thư mục app.py!")
+        up_db = st.file_uploader("Kéo thả file Database mới vào đây (.xlsx hoặc .csv)", type=['csv', 'xlsx'], key='up_dms')
 
         if up_db:
             df_raw = doc_file_db(up_db)
@@ -1484,22 +1448,6 @@ if is_admin:
     # TAB 6: ĐỐI SOÁT CYBER
     with tab_cyber:
         st.subheader("🔍 Đối Soát Lệnh Đã Hoàn Thành Chưa Up Lên Phần Mềm Cyber")
-        # THÊM NÚT BẤM TỰ ĐỘNG TẠI ĐÂY:
-        col_btn_auto_cy, _ = st.columns([4, 6])
-        with col_btn_auto_cy:
-            if st.button("⚡ TỰ ĐỘNG LẤY DỮ LIỆU TỪ CYBER ENTERPRISE", type="primary", use_container_width=True, key="btn_auto_pull_cy"):
-                with st.spinner("⏳ Đang kết nối Cyber Enterprise 9.0 để xuất báo cáo..."):
-                    if bot_cyber:
-                        res_cy = bot_cyber.tu_dong_xuat_bao_cao_cyber()
-                        if res_cy.get("success"):
-                            st.session_state["auto_cyber_file"] = res_cy.get("file_path")
-                            st.success(res_cy.get("message"))
-                            st.rerun()
-                        else:
-                            st.error(res_cy.get("message"))
-                    else:
-                        st.error("Chưa nạp module bot_cyber.py!")
-        st.markdown("---")
         up_cyber_file = st.file_uploader("Tải lên file BẢNG TỔNG HỢP LỆNH SỬA CHỮA từ Cyber (Excel)", type=['xlsx', 'xls', 'csv'], key='up_cyber_file')
         
         if up_cyber_file:
