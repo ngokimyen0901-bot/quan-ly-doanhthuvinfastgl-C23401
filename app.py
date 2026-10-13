@@ -1089,16 +1089,34 @@ if is_admin:
         # THÊM NÚT BẤM TỰ ĐỘNG TẠI ĐÂY:
         col_btn_auto_vf, _ = st.columns([4, 6])
         with col_btn_auto_vf:
-            if st.button("⚡ TỰ ĐỘNG KÉO TỪ VINFAST & ĐỒNG BỘ NGAY", type="primary", use_container_width=True, key="btn_auto_pull_vf"):
-                with st.spinner("⏳ Đang kết nối VinFast và kéo dữ liệu mới nhất..."):
-                    if scheduler_vinfast:
-                        scheduler_vinfast.chay_tien_trinh_dong_bo()
-                        st.success("✅ Đã hoàn tất đồng bộ tự động từ VinFast!")
-                        st.rerun()
+col_btn_auto_vf, col_cfg_vf = st.columns([4, 4])
+        with col_btn_auto_vf:
+            btn_run_vf = st.button("⚡ TỰ ĐỘNG KÉO TỪ VINFAST & ĐỒNG BỘ NGAY", type="primary", use_container_width=True, key="btn_auto_pull_vinfast")
+        with col_cfg_vf:
+            show_browser = st.checkbox("🖥️ Hiển thị màn hình Chrome khi chạy (để quan sát)", value=True, key="chk_show_chrome")
+
+        if btn_run_vf:
+            if scheduler_vinfast:
+                with st.status("🚀 Đang chạy Bot tự động kéo dữ liệu VinFast...", expanded=True) as status_box:
+                    st.write("🌐 [1/3] Đang kết nối VinFast, tìm ô [Ngày tạo] và tải file database.xlsx...")
+                    res = scheduler_vinfast.chay_tien_trinh_dong_bo(headless=(not show_browser))
+                    
+                    if res.get("success"):
+                        st.write("📊 [2/3] Đã tải xong file và đồng bộ thành công vào Google Sheets!")
+                        st.write("📱 [3/3] Đã gửi thông báo kết quả qua Telegram / Zalo.")
+                        status_box.update(label="🎉 HOÀN TẤT ĐỒNG BỘ THÀNH CÔNG!", state="complete", expanded=True)
+                        st.success(
+                            f"✅ **Đã đồng bộ xong!** Thêm mới: **{res.get('new_records', 0)}** lệnh | "
+                            f"Cập nhật: **{res.get('updated_records', 0)}** lệnh | "
+                            f"Tổng số: **{res.get('total_records', 0)}** lệnh trên Google Sheets."
+                        )
+                        st.balloons()
                     else:
-                        st.error("Chưa nạp module scheduler_vinfast.py!")
-        st.markdown("---")
-        up_db = st.file_uploader("Kéo thả file Database mới vào đây (.xlsx hoặc .csv)", type=['csv', 'xlsx'], key='up_dms')
+                        err_msg = res.get("message", "Lỗi không xác định")
+                        status_box.update(label="❌ Chưa hoàn thành chu trình!", state="error", expanded=True)
+                        st.error(f"⚠️ **Thông báo lỗi từ hệ thống:** {err_msg}")
+            else:
+                st.error("❌ Chưa nạp module scheduler_vinfast.py. Hãy đảm bảo file scheduler_vinfast.py nằm cùng thư mục app.py!")
 
         if up_db:
             df_raw = doc_file_db(up_db)
