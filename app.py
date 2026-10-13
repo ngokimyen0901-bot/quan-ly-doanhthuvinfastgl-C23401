@@ -10,7 +10,15 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from streamlit_gsheets import GSheetsConnection
-
+# THÊM MỚI ĐOẠN NÀY VÀO ĐẦU FILE:
+try:
+    import bot_vinfast
+    import bot_cyber
+    import scheduler_vinfast
+except Exception:
+    bot_vinfast = None
+    bot_cyber = None
+    scheduler_vinfast = None
 st.set_page_config(page_title="Báo Cáo Dịch Vụ VinFast", page_icon="🚗", layout="wide")
 
 st.markdown("""
