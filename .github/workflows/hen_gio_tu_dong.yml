@@ -1,0 +1,32 @@
+name: Tự động kéo báo cáo VinFast 8h00 và 16h50
+
+on:
+  schedule:
+    # 08:00 sáng giờ Việt Nam (GMT+7) = 01:00 UTC
+    - cron: '0 1 * * *'
+    # 16:50 chiều giờ Việt Nam (GMT+7) = 09:50 UTC
+    - cron: '50 9 * * *'
+  workflow_dispatch: # Cho phép bấm chạy thử bất cứ lúc nào trên GitHub
+
+jobs:
+  chay-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lấy mã nguồn
+        uses: actions/checkout@v4
+
+      - name: Cài đặt Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Cài đặt thư viện
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: Chạy Bot đồng bộ dữ liệu
+        run: |
+          python scheduler_vinfast.py
