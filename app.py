@@ -1138,37 +1138,37 @@ if is_admin:
     # TAB 2: NẠP DỮ LIỆU DMS
     with tab_import:
         # ==========================================================
-        # KHU VỰC TỰ ĐỘNG HÓA KÉO LỆNH TỪ VINFAST DMS
-        # ==========================================================
-        st.markdown("### 🤖 Tự Động Hóa Kéo Lệnh DMS VinFast")
-        
-        col_btn, col_info = st.columns([1, 2])
-        
-        with col_btn:
-            if st.button("⚡ ĐỒNG BỘ DMS NGAY BÂY GIỜ", type="primary", use_container_width=True):
-                with st.spinner("Đang mở trình duyệt lấy file từ VinFast DMS... Bạn hãy nhìn cửa sổ Chrome đang chạy trên màn hình!"):
-                    # Kích hoạt bot chạy độc lập
-                    tien_trinh = subprocess.run([sys.executable, FILE_BOT_DMS], capture_output=True, text=True)
-                    
-                    # Đọc lại nhật ký sau khi bot chạy xong
-                    log_moi = doc_log_dong_bo()
-                    if log_moi and "Thành công" in log_moi.get("trang_thai", ""):
-                        st.toast("✅ Đã kéo lệnh và cập nhật Google Sheets thành công!")
-                        hien_thi_popup_dong_bo(log_moi)
-                    else:
-                        st.error("Có lỗi trong quá trình kéo lệnh. Hãy kiểm tra lại cửa sổ trình duyệt!")
+    # KHU VỰC TỰ ĐỘNG HÓA KÉO LỆNH TỪ VINFAST DMS
+    # ==========================================================
+    st.markdown("### 🤖 Tự Động Hóa Kéo Lệnh DMS VinFast")
+    
+    col_btn, col_info = st.columns([1, 2])
+    
+    with col_btn:
+        if st.button("⚡ ĐỒNG BỘ DMS NGAY BÂY GIỜ", type="primary", use_container_width=True):
+            with st.spinner("Đang mở trình duyệt lấy file từ VinFast DMS... Bạn hãy nhìn cửa sổ Chrome đang chạy trên màn hình!"):
+                # Kích hoạt bot chạy độc lập
+                tien_trinh = subprocess.run([sys.executable, FILE_BOT_DMS], capture_output=True, text=True)
+                
+                # Đọc lại nhật ký sau khi bot chạy xong
+                log_moi = doc_log_dong_bo()
+                if log_moi and "Thành công" in log_moi.get("trang_thai", ""):
+                    st.toast("✅ Đã kéo lệnh và cập nhật Google Sheets thành công!")
+                    hien_thi_popup_dong_bo(log_moi)
+                else:
+                    st.error("Có lỗi trong quá trình kéo lệnh. Hãy kiểm tra lại cửa sổ trình duyệt!")
 
-        with col_info:
-            log_hien_tai = doc_log_dong_bo()
-            if log_hien_tai:
-                st.info(
-                    f"📅 **Lần cập nhật gần nhất:** `{log_hien_tai.get('thoi_gian')}`\n\n"
-                    f"➕ Thêm mới: **+{log_hien_tai.get('so_lenh_moi')}** lệnh | 🔄 Cập nhật: **{log_hien_tai.get('so_lenh_cap_nhat')}** lệnh"
-                )
-            else:
-                st.info("ℹ️ Hệ thống chưa có dữ liệu đồng bộ tự động trước đó.")
+    with col_info:
+        log_hien_tai = doc_log_dong_bo()
+        if log_hien_tai:
+            st.info(
+                f"📅 **Lần cập nhật gần nhất:** `{log_hien_tai.get('thoi_gian')}`\n\n"
+                f"➕ Thêm mới: **+{log_hien_tai.get('so_lenh_moi')}** lệnh | 🔄 Cập nhật: **{log_hien_tai.get('so_lenh_cap_nhat')}** lệnh"
+            )
+        else:
+            st.info("ℹ️ Hệ thống chưa có dữ liệu đồng bộ tự động trước đó.")
 
-        st.divider()
+    st.divider()
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
         st.info("💡 Tự động lấy giá cuối cùng sau chiết khấu và tự động phân loại C, W, I theo số tiền thanh toán thực tế.")
         up_db = st.file_uploader("Kéo thả file Database mới vào đây (.xlsx hoặc .csv)", type=['csv', 'xlsx'], key='up_dms')
