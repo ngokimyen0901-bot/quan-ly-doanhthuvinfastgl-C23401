@@ -260,7 +260,6 @@ def doc_file_db(file_obj):
         df = pd.read_excel(file_obj)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Nhận diện nếu tệp dùng tên cột mới: đổi về tên cột chuẩn của hệ thống
     rename_dict = {
         'Lệnh sửa chữa': 'Số lệnh sửa chữa',
         'Trạng thái LSC': 'Trạng thái',
@@ -269,43 +268,33 @@ def doc_file_db(file_obj):
     for k, v in rename_dict.items():
         if k in df.columns and v not in df.columns:
             df = df.rename(columns={k: v})
-            
-    return df
 
     # NẾU LÀ FILE MẪU DMS MỚI (work-order-details): TỰ ĐỘNG GOM DÒNG & TRỪ GIẢM GIÁ
-    if 'Lệnh sửa chữa' in df.columns and ('TT chưa GG' in df.columns or 'Mô tả sản phẩm' in df.columns):
-        col_lsc = 'Lệnh sửa chữa'
+    if 'Số lệnh sửa chữa' in df.columns and ('TT chưa GG' in df.columns or 'Mô tả sản phẩm' in df.columns):
+        col_lsc = 'Số lệnh sửa chữa'
         col_type = next((c for c in df.columns if 'loại sản phẩm' in c.lower()), 'Loại sản phẩm')
-        col_tt_lsc = next((c for c in df.columns if 'trạng thái' in c.lower()), 'Trạng thái LSC')
+        col_tt_lsc = next((c for c in df.columns if 'trạng thái' in c.lower()), 'Trạng thái')
         col_cvdv = next((c for c in df.columns if 'cố vấn' in c.lower()), 'Cố vấn dịch vụ')
         col_pbill = next((c for c in df.columns if 'classification' in c.lower() or 'p/bill' in c.lower()), 'P/bill classification')
-        col_tg_dong = next((c for c in df.columns if 'ngày quyết toán' in c.lower() or 'ngày tạo' in c.lower()), 'Ngày quyết toán')
+        col_tg_dong = next((c for c in df.columns if 'thời gian đóng' in c.lower() or 'ngày quyết toán' in c.lower() or 'ngày tạo' in c.lower()), 'Thời gian đóng LSC')
         
-        # Làm sạch số tiền
         df['val_chua_gg'] = pd.to_numeric(clean_tien_series(df['TT chưa GG'] if 'TT chưa GG' in df.columns else df.get('Đơn giá', 0)), errors='coerce').fillna(0)
         df['val_gg'] = pd.to_numeric(clean_tien_series(df['Giảm giá đại lý'] if 'Giảm giá đại lý' in df.columns else 0), errors='coerce').fillna(0)
         df['val_pt_goc'] = pd.to_numeric(clean_tien_series(df['Tổng tiền phụ tùng'] if 'Tổng tiền phụ tùng' in df.columns else 0), errors='coerce').fillna(0)
         df['val_cong_goc'] = pd.to_numeric(clean_tien_series(df['Tổng tiền nhân công'] if 'Tổng tiền nhân công' in df.columns else 0), errors='coerce').fillna(0)
-        
-        # Tiền sau giảm giá của từng dòng (Giá cuối cùng)
         df['val_sau_gg'] = df['val_chua_gg'] - df['val_gg']
 
         rows_aggregated = []
         for lsc_code, group in df.groupby(col_lsc):
-            # Tính tiền theo loại sản phẩm
             tong_cong = group[group[col_type].astype(str).str.lower().str.contains('tiền công|nhân công')]['val_cong_goc'].sum()
             tong_pt = group[group[col_type].astype(str).str.lower().str.contains('phụ tùng')]['val_pt_goc'].sum()
-            
-            # Giảm giá & Giá cuối cùng
             tong_truoc_ck = group['val_chua_gg'].sum()
             ck_dai_ly = group['val_gg'].sum()
             tong_sau_ck = tong_truoc_ck - ck_dai_ly
             
-            # Thuế VAT 8%
             tien_vat = round(tong_sau_ck * 0.08)
             tong_co_vat = tong_sau_ck + tien_vat
             
-            # Phân bổ đối tượng thanh toán theo P/bill classification (C, W, I, P)
             kh_tt = 0.0
             bh_tt = 0.0
             bh_hang_tt = 0.0
@@ -327,7 +316,6 @@ def doc_file_db(file_obj):
                 else:
                     kh_tt += co_vat_pb
 
-            # Trạng thái và thời gian
             tt_val = str(group[col_tt_lsc].iloc[0]).strip() if col_tt_lsc in group.columns else "Đã đóng"
             cvdv_val = str(group[col_cvdv].iloc[0]).strip() if col_cvdv in group.columns else ""
             tg_val = str(group[col_tg_dong].dropna().iloc[0]).strip() if col_tg_dong in group.columns and len(group[col_tg_dong].dropna()) > 0 else ""
@@ -359,7 +347,7 @@ def doc_file_db(file_obj):
                 'Phê duyệt bảo hành': 'Chờ duyệt' if bh_hang_tt > 0 else '',
                 'Số hóa đơn': '',
                 'Ngày xuất hóa đơn': '',
-                'Giá trị xuất hóa đơn': 0,
+                'Giá trị xuất hóa đơn': 0.0,
                 'Ghi chú': ''
             }
             rows_aggregated.append(row_dict)
@@ -375,11 +363,11 @@ def dong_bo_hoa_don(df_target):
     if 'Ngày xuất hóa đơn' in df_res.columns:
         df_res['Ngày xuất hóa đơn'] = df_res['Ngày xuất hóa đơn'].astype(object).fillna('').astype(str)
     if 'Giá trị xuất hóa đơn' in df_res.columns:
-        df_res['Giá trị xuất hóa đơn'] = pd.to_numeric(clean_tien_series(df_res['Giá trị xuất hóa đơn']), errors='coerce').fillna(0)
+        df_res['Giá trị xuất hóa đơn'] = pd.to_numeric(clean_tien_series(df_res['Giá trị xuất hóa đơn']), errors='coerce').fillna(0.0).astype(float)
 
     mask_chua_hd = df_res['Số hóa đơn'].isna() | df_res['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])
     df_res.loc[mask_chua_hd, 'Ngày xuất hóa đơn'] = ""
-    df_res.loc[mask_chua_hd, 'Giá trị xuất hóa đơn'] = 0
+    df_res.loc[mask_chua_hd, 'Giá trị xuất hóa đơn'] = 0.0
     return df_res
 
 def chuan_hoa_kieu_du_lieu(df_input):
@@ -396,7 +384,7 @@ def chuan_hoa_kieu_du_lieu(df_input):
 
     for col in COT_TIEN + ['Giá trị xuất hóa đơn']:
         if col in df_out.columns:
-            df_out[col] = pd.to_numeric(clean_tien_series(df_out[col]), errors='coerce').fillna(0)
+            df_out[col] = pd.to_numeric(clean_tien_series(df_out[col]), errors='coerce').fillna(0.0).astype(float)
     return df_out
 
 def loc_chuan_tu_29_thang_8(df_target):
@@ -447,9 +435,8 @@ def load_data_from_gsheets():
 
     for c in COT_TIEN + ['Giá trị xuất hóa đơn']:
         if c in df_m.columns:
-            df_m[c] = pd.to_numeric(clean_tien_series(df_m[c]), errors='coerce').fillna(0)
+            df_m[c] = pd.to_numeric(clean_tien_series(df_m[c]), errors='coerce').fillna(0.0).astype(float)
 
-    # ĐỐI CHIẾU GSM TỰ ĐỘNG
     gsm_keys_set = doc_danh_sach_gsm_tu_gsheet()
     for idx, row in df_m.iterrows():
         cur_pl = str(row.get('Phân loại KH', '')).strip()
@@ -459,7 +446,7 @@ def load_data_from_gsheets():
         if is_gsm_match:
             df_m.at[idx, 'Phân loại KH'] = "GSM Công nợ"
         elif cur_pl in ["Bảo Hiểm", "Bảo Hành Hãng", "Nội Bộ / PDI"]:
-            pass  # Giữ nguyên phân loại bạn đã gán thủ công
+            pass
         elif not cur_pl or cur_pl in ['nan', 'None']:
             df_m.at[idx, 'Phân loại KH'] = "KH Thông Thường"
 
@@ -700,7 +687,6 @@ def doc_log_dong_bo():
             pass
     return None
 
-# CỬA SỔ POPUP BÁO KẾT QUẢ ĐỒNG BỘ
 @st.dialog("🔔 THÔNG TIN ĐỒNG BỘ DỮ LIỆU DMS VINFAST")
 def hien_thi_popup_dong_bo(log_data):
     if log_data:
@@ -719,16 +705,12 @@ def hien_thi_popup_dong_bo(log_data):
     if st.button("Đã hiểu & Đóng", type="primary", use_container_width=True):
         st.rerun()
 
-# Tự động bật Popup 1 lần duy nhất khi bạn vừa vào Web
 if st.session_state.get("logged_in", False) and "da_xem_popup_dms" not in st.session_state:
     st.session_state.da_xem_popup_dms = True
     log_khoi_dong = doc_log_dong_bo()
     if log_khoi_dong:
         hien_thi_popup_dong_bo(log_khoi_dong)
-import json
-import os
 
-# Đọc thời gian cập nhật gần nhất từ file last_sync.json
 def lay_thoi_gian_cap_nhat():
     file_log = "last_sync.json"
     if os.path.exists(file_log):
@@ -741,7 +723,6 @@ def lay_thoi_gian_cap_nhat():
 
 info_sync = lay_thoi_gian_cap_nhat()
 
-# Nếu có dữ liệu, hiện một thanh màu xanh thông báo ngay trên đầu trang
 if info_sync:
     st.info(f"🔄 **Dữ liệu DMS VinFast đã cập nhật đến:** **{info_sync.get('thoi_gian', 'Chưa rõ')}** "
             f"(Lệnh mới: +{info_sync.get('so_lenh_moi', 0)} | Cập nhật: {info_sync.get('so_lenh_cap_nhat', 0)} lệnh)")
@@ -773,13 +754,11 @@ with tab_work:
     df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
     chua_hoan_thanh_cnt = len(df_chuahoanthanh)
 
-    # ==================== PHÂN KỲ DOANH THU & CUỐN CHIẾU HÓA ĐƠN ====================
     def xac_dinh_ky_quan_tri(row, thang_hien_hanh="Tháng 10/2026"):
         shd = str(row.get('Số hóa đơn', '')).strip()
         ngay_hd = row.get('Ngày xuất hóa đơn', row.get('Ngày HĐ', ''))
         co_hd = bool(shd and shd.lower() not in ['', 'nan', 'none', '0'])
         
-        # 1. Đã có hóa đơn -> Chốt cứng theo tháng của Ngày xuất HĐ
         if co_hd and pd.notna(ngay_hd) and str(ngay_hd).strip() not in ['', 'nan', 'None']:
             try:
                 d_hd = pd.to_datetime(ngay_hd, errors='coerce', dayfirst=True)
@@ -788,19 +767,16 @@ with tab_work:
             except Exception:
                 pass
 
-        # 2. Chưa có hóa đơn -> Tự động cuốn chiếu sang tháng hiện hành (Tháng 10) để theo dõi tiếp
         return thang_hien_hanh
 
     THANG_HIEN_TAI = "Tháng 10/2026"
     df_hoanthanh['Ky_Doanh_Thu'] = df_hoanthanh.apply(lambda r: xac_dinh_ky_quan_tri(r, THANG_HIEN_TAI), axis=1)
 
-    # Tạo danh sách các tháng đổ xuống
     danh_sach_thang = sorted(list(set([str(k) for k in df_hoanthanh['Ky_Doanh_Thu'].unique() if str(k) not in ['', 'nan', 'None']])))
     if THANG_HIEN_TAI not in danh_sach_thang:
         danh_sach_thang.append(THANG_HIEN_TAI)
     danh_sach_thang = sorted(danh_sach_thang, reverse=True)
 
-    # Hộp chọn tháng
     col_k1, _ = st.columns([4, 6])
     with col_k1:
         sel_thang = st.selectbox(
@@ -809,23 +785,18 @@ with tab_work:
             index=0
         )
 
-    # Lọc dữ liệu theo tháng đã chọn
     if sel_thang != "Tất cả các tháng":
         df_hienthi = df_hoanthanh[df_hoanthanh['Ky_Doanh_Thu'] == sel_thang].copy()
     else:
         df_hienthi = df_hoanthanh.copy()
-    # =================================================================================
 
-    # Cho phép xe có phần Bảo Hành Hãng vẫn hiển thị nếu có phát sinh tiền khách trả (> 0)
     mask_kh = (df_hienthi['KH thanh toán'] > 0) & (~df_hienthi['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Nội Bộ / PDI']))
-    df_kh_total = df_hienthi[mask_kh]
     df_kh_total = df_hienthi[mask_kh]
     kh_da_hd_cnt = df_kh_total[df_kh_total['Số hóa đơn'].notna() & (~df_kh_total['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))].shape[0]
     kh_total_cnt = len(df_kh_total)
     kh_chua_hd_cnt = kh_total_cnt - kh_da_hd_cnt
     kh_chua_hd_amt = df_kh_total[df_kh_total['Số hóa đơn'].isna() | df_kh_total['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])]['KH thanh toán'].sum()
 
-    # 2. GSM Công nợ
     df_gsm_all = df_master[df_master['Phân loại KH'] == 'GSM Công nợ']
     df_gsm_da_hd = df_gsm_all[df_gsm_all['Số hóa đơn'].notna() & (~df_gsm_all['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))]
     df_gsm_chua_hd = df_gsm_all[df_gsm_all['Số hóa đơn'].isna() | df_gsm_all['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])]
@@ -833,13 +804,11 @@ with tab_work:
     gsm_treo_no_amt = df_gsm_chua_hd.apply(lambda r: r['KH thanh toán'] if r['KH thanh toán'] > 0 else r['Số tiền thanh toán cuối'], axis=1).sum() if len(df_gsm_chua_hd) > 0 else 0
     gsm_da_hd_cnt = len(df_gsm_da_hd)
 
-    # 3. Bảo Hành Hãng (Nhận xe có BH hãng thanh toán HOẶC phân loại là 'Bảo Hành Hãng')
     mask_bh_hang = (df_hoanthanh['BH hãng thanh toán'] > 0) | (df_hoanthanh['Phân loại KH'] == 'Bảo Hành Hãng')
     df_bh_hang = df_hoanthanh[mask_bh_hang]
     bh_chua_duyet_cnt = df_bh_hang[df_bh_hang['Phê duyệt bảo hành'].isin(['Chờ duyệt', None, 'nan', ''])].shape[0]
     bh_total_cnt = len(df_bh_hang)
 
-    # 4. Bảo Hiểm (Nhận xe có BH thanh toán HOẶC phân loại là 'Bảo Hiểm')
     mask_bh = (df_hoanthanh['BH thanh toán'] > 0) | (df_hoanthanh['Phân loại KH'] == 'Bảo Hiểm')
     df_bh = df_hoanthanh[mask_bh]
     bh_da_hd_cnt = df_bh[df_bh['Số hóa đơn'].notna() & (~df_bh['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))].shape[0]
@@ -1137,38 +1106,31 @@ with tab_work:
 if is_admin:
     # TAB 2: NẠP DỮ LIỆU DMS
     with tab_import:
-        # ==========================================================
-    # KHU VỰC TỰ ĐỘNG HÓA KÉO LỆNH TỪ VINFAST DMS
-    # ==========================================================
-    st.markdown("### 🤖 Tự Động Hóa Kéo Lệnh DMS VinFast")
-    
-    col_btn, col_info = st.columns([1, 2])
-    
-    with col_btn:
-        if st.button("⚡ ĐỒNG BỘ DMS NGAY BÂY GIỜ", type="primary", use_container_width=True):
-            with st.spinner("Đang mở trình duyệt lấy file từ VinFast DMS... Bạn hãy nhìn cửa sổ Chrome đang chạy trên màn hình!"):
-                # Kích hoạt bot chạy độc lập
-                tien_trinh = subprocess.run([sys.executable, FILE_BOT_DMS], capture_output=True, text=True)
-                
-                # Đọc lại nhật ký sau khi bot chạy xong
-                log_moi = doc_log_dong_bo()
-                if log_moi and "Thành công" in log_moi.get("trang_thai", ""):
-                    st.toast("✅ Đã kéo lệnh và cập nhật Google Sheets thành công!")
-                    hien_thi_popup_dong_bo(log_moi)
-                else:
-                    st.error("Có lỗi trong quá trình kéo lệnh. Hãy kiểm tra lại cửa sổ trình duyệt!")
+        st.markdown("### 🤖 Tự Động Hóa Kéo Lệnh DMS VinFast")
+        col_btn, col_info = st.columns([1, 2])
+        
+        with col_btn:
+            if st.button("⚡ ĐỒNG BỘ DMS NGAY BÂY GIỜ", type="primary", use_container_width=True):
+                with st.spinner("Đang mở trình duyệt lấy file từ VinFast DMS..."):
+                    tien_trinh = subprocess.run([sys.executable, FILE_BOT_DMS], capture_output=True, text=True)
+                    log_moi = doc_log_dong_bo()
+                    if log_moi and "Thành công" in log_moi.get("trang_thai", ""):
+                        st.toast("✅ Đã kéo lệnh và cập nhật Google Sheets thành công!")
+                        hien_thi_popup_dong_bo(log_moi)
+                    else:
+                        st.error("Có lỗi trong quá trình kéo lệnh. Hãy kiểm tra lại cửa sổ trình duyệt!")
 
-    with col_info:
-        log_hien_tai = doc_log_dong_bo()
-        if log_hien_tai:
-            st.info(
-                f"📅 **Lần cập nhật gần nhất:** `{log_hien_tai.get('thoi_gian')}`\n\n"
-                f"➕ Thêm mới: **+{log_hien_tai.get('so_lenh_moi')}** lệnh | 🔄 Cập nhật: **{log_hien_tai.get('so_lenh_cap_nhat')}** lệnh"
-            )
-        else:
-            st.info("ℹ️ Hệ thống chưa có dữ liệu đồng bộ tự động trước đó.")
+        with col_info:
+            log_hien_tai = doc_log_dong_bo()
+            if log_hien_tai:
+                st.info(
+                    f"📅 **Lần cập nhật gần nhất:** `{log_hien_tai.get('thoi_gian')}`\n\n"
+                    f"➕ Thêm mới: **+{log_hien_tai.get('so_lenh_moi')}** lệnh | 🔄 Cập nhật: **{log_hien_tai.get('so_lenh_cap_nhat')}** lệnh"
+                )
+            else:
+                st.info("ℹ️ Hệ thống chưa có dữ liệu đồng bộ tự động trước đó.")
 
-    st.divider()
+        st.divider()
         st.subheader("Nạp file dữ liệu phân phối VinFast định kỳ")
         st.info("💡 Tự động lấy giá cuối cùng sau chiết khấu và tự động phân loại C, W, I theo số tiền thanh toán thực tế.")
         up_db = st.file_uploader("Kéo thả file Database mới vào đây (.xlsx hoặc .csv)", type=['csv', 'xlsx'], key='up_dms')
@@ -1188,11 +1150,9 @@ if is_admin:
 
                 df_inc['Số lệnh sửa chữa'] = df_inc['Số lệnh sửa chữa'].astype(str).apply(clean_lsc_giu_gach)
 
-                # 1. LẤY GIÁ CUỐI CÙNG SAU KHI ĐÃ TRỪ HẾT GIẢM GIÁ
                 mask_co_ck = (df_inc['Tổng trước chiết khấu'] > 0) & (df_inc['Chiết khấu đại lý'] > 0)
                 df_inc.loc[mask_co_ck, 'Tổng sau chiết khấu'] = df_inc.loc[mask_co_ck, 'Tổng trước chiết khấu'] - df_inc.loc[mask_co_ck, 'Chiết khấu đại lý']
 
-                # 2. TỰ ĐỘNG PHÂN LOẠI C, W, I DỰA VÀO SỐ TIỀN THỰC TẾ
                 def phan_loai_theo_tien(r):
                     bh_hang = float(r.get('BH hãng thanh toán', 0) or 0)
                     bh = float(r.get('BH thanh toán', 0) or 0)
@@ -1200,13 +1160,13 @@ if is_admin:
                     kh = float(r.get('KH thanh toán', 0) or 0)
                     
                     if bh_hang > 0:
-                        return "Bảo Hành Hãng"      # W
+                        return "Bảo Hành Hãng"
                     elif bh > 0:
-                        return "Bảo Hiểm"            # I
+                        return "Bảo Hiểm"
                     elif noi_bo > 0:
-                        return "Nội Bộ / PDI"        # P
+                        return "Nội Bộ / PDI"
                     elif kh > 0:
-                        return "KH Thông Thường"    # C
+                        return "KH Thông Thường"
                     return "KH Thông Thường"
 
                 df_inc['Phân loại KH'] = df_inc.apply(phan_loai_theo_tien, axis=1)
@@ -1220,7 +1180,6 @@ if is_admin:
                 txt_dms = st.empty()
                 txt_dms.write("⏳ Đang đối soát và cập nhật dữ liệu... (10%)")
 
-                # Đồng bộ kiểu dữ liệu an toàn tránh lỗi LossySetitemError
                 df_master = df_master.reset_index(drop=True)
                 for col in COT_TIEN + ['Giá trị xuất hóa đơn']:
                     if col in df_master.columns:
@@ -1233,7 +1192,6 @@ if is_admin:
                 status_updated_cnt = 0
                 total_inc = len(df_inc)
 
-                # Danh sách các cột kế toán được bảo vệ tuyệt đối
                 COT_BAO_VE = [
                     'Số hóa đơn', 'Số HĐ', 
                     'Ngày xuất hóa đơn', 'Ngày xuất hoá đơn', 'Ngày HĐ', 
@@ -1257,13 +1215,10 @@ if is_admin:
                             df_master.at[m_idx, 'Trạng thái'] = new_status
                             status_updated_cnt += 1
                         
-                        # Cập nhật số tiền mới nhất
                         for col in COT_TIEN:
                             if col in df_master.columns and col in row:
                                 df_master.at[m_idx, col] = float(row[col])
 
-                        # Cập nhật thông tin mới (Biển số mới, CVDV mới, Tên KH, Thời gian đóng...)
-                        # BỎ QUA các cột Hóa đơn để không bao giờ bị đè mất
                         for col in df_inc.columns:
                             if col in COT_BAO_VE or col in COT_TIEN or col == 'Số lệnh sửa chữa':
                                 continue
@@ -1284,6 +1239,7 @@ if is_admin:
                 txt_dms.empty()
                 st.success(f"✅ ĐÃ ĐỒNG BỘ LÊN GOOGLE SHEETS! Thêm **{len(new_records)}** lệnh mới, cập nhật **{status_updated_cnt}** lệnh.")
                 st.rerun()
+
     # TAB 3: KHỚP HÓA ĐƠN
     with tab_inv:
         st.subheader("Khớp file Hóa Đơn kế toán với Hệ Thống")
@@ -1322,6 +1278,14 @@ if is_admin:
 
                 df_master = df_master.reset_index(drop=True)
                 
+                # Ép kiểu an toàn trước khi gán để triệt tiêu lỗi LossySetitemError
+                if 'Số hóa đơn' in df_master.columns:
+                    df_master['Số hóa đơn'] = df_master['Số hóa đơn'].astype(object)
+                if 'Ngày xuất hóa đơn' in df_master.columns:
+                    df_master['Ngày xuất hóa đơn'] = df_master['Ngày xuất hóa đơn'].astype(object)
+                if 'Giá trị xuất hóa đơn' in df_master.columns:
+                    df_master['Giá trị xuất hóa đơn'] = pd.to_numeric(df_master['Giá trị xuất hóa đơn'], errors='coerce').fillna(0.0).astype(float)
+
                 norm_map = {}
                 for idx, lsc in enumerate(df_master['Số lệnh sửa chữa']):
                     norm_map[norm_lsc_key(lsc)] = idx
@@ -1344,12 +1308,13 @@ if is_admin:
                     if sel_nhd_idx != -1 and pd.notna(df_inv.iloc[r_idx, sel_nhd_idx]):
                         nhd_val = clean_ngay_chuan(df_inv.iloc[r_idx, sel_nhd_idx])
 
-                    gt_val = 0
+                    gt_val = 0.0
                     if sel_gt_idx != -1 and pd.notna(df_inv.iloc[r_idx, sel_gt_idx]):
                         try:
-                            gt_val = float(str(df_inv.iloc[r_idx, sel_gt_idx]).replace(',', '').replace(' ', ''))
+                            clean_gt_str = str(df_inv.iloc[r_idx, sel_gt_idx]).replace(',', '').replace(' ', '')
+                            gt_val = float(clean_gt_str) if clean_gt_str not in ['', 'nan', 'None'] else 0.0
                         except ValueError:
-                            gt_val = 0
+                            gt_val = 0.0
 
                     match_key = key_norm if key_norm in norm_map else (key_core if key_core in norm_map else key_norm)
 
@@ -1376,19 +1341,20 @@ if is_admin:
                     m_idx = norm_map.get(k_target)
 
                     if m_idx is not None:
-                        if str(df_master.iloc[m_idx]['Trạng thái']) == 'Đã hủy':
+                        if str(df_master.at[m_idx, 'Trạng thái']) == 'Đã hủy':
                             continue
 
                         shd_str = ", ".join(val_dict['so_hd'])
                         nhd_str = ", ".join(val_dict['ngay_hd'])
-                        gt_tong = val_dict['tong_tien']
+                        gt_tong = float(val_dict['tong_tien'])
 
-                        df_master.iloc[m_idx, df_master.columns.get_loc('Số hóa đơn')] = shd_str
-                        df_master.iloc[m_idx, df_master.columns.get_loc('Ngày xuất hóa đơn')] = nhd_str
-                        df_master.iloc[m_idx, df_master.columns.get_loc('Giá trị xuất hóa đơn')] = gt_tong
+                        # Gán an toàn bằng .at thay cho .iloc để loại bỏ triệt để lỗi
+                        df_master.at[m_idx, 'Số hóa đơn'] = shd_str
+                        df_master.at[m_idx, 'Ngày xuất hóa đơn'] = nhd_str
+                        df_master.at[m_idx, 'Giá trị xuất hóa đơn'] = gt_tong
 
                         matched_records.append({
-                            'Số LSC': df_master.iloc[m_idx]['Số lệnh sửa chữa'],
+                            'Số LSC': df_master.at[m_idx, 'Số lệnh sửa chữa'],
                             'Số Hóa Đơn': shd_str,
                             'Ngày HĐ': nhd_str,
                             'Giá Trị HĐ': f"{gt_tong:,.0f}" if gt_tong else "0"
@@ -1411,7 +1377,6 @@ if is_admin:
         up_bh_file = st.file_uploader("Tải file duyệt bảo hành (XLSX / CSV)", type=['csv', 'xlsx'], key='up_bh_file')
         
         if up_bh_file:
-            # 1. TỰ ĐỘNG CHỌN ĐÚNG SHEET CHI TIẾT
             if up_bh_file.name.lower().endswith('.csv'):
                 df_bh_input = pd.read_csv(up_bh_file)
             else:
@@ -1425,7 +1390,6 @@ if is_admin:
 
             df_bh_input.columns = [str(c).strip() for c in df_bh_input.columns]
 
-            # 2. TỰ ĐỘNG NHẬN DIỆN CỘT WO (SỐ LỆNH)
             col_wo_found = next((c for c in df_bh_input.columns if c.upper() in ['WO', 'SỐ LSC', 'LỆNH SỬA CHỮA', 'SỐ LỆNH SỬA CHỮA', 'RO HÃNG']), None)
             if not col_wo_found:
                 col_wo_found = df_bh_input.columns[0]
@@ -1443,7 +1407,6 @@ if is_admin:
             ds_wo_preview = [str(x).strip() for x in df_bh_input[s_bh_lsc].dropna().unique() if len(str(x).strip()) > 5]
             st.write(f"🔎 Tìm thấy **{len(ds_wo_preview)} lệnh sửa chữa (WO)** hợp lệ trong bảng kê.")
 
-            # Đặt key='btn_submit_update_bh' để không bao giờ bị lỗi trùng nút
             if st.button("🚀 CẬP NHẬT PHÊ DUYỆT LÊN GOOGLE SHEETS", type="primary", use_container_width=True, key="btn_submit_update_bh"):
                 p_bar_bh = st.progress(0)
                 txt_bh = st.empty()
@@ -1499,6 +1462,7 @@ if is_admin:
                 txt_bh.empty()
                 st.success(f"✅ ĐÃ CẬP NHẬT THÀNH CÔNG! Đã đổi trạng thái sang **'Đã duyệt'** cho **{bh_updated}** lượt lệnh trên Google Sheets.")
                 st.rerun()
+
     # TAB 5: QUẢN LÝ CÔNG NỢ GSM (ĐỌC TỪ SHEET GSM_List)
     with tab_gsm_import:
         st.subheader("🚕 Quản Lý Công Nợ GSM (Đồng Bộ Google Sheets)")
