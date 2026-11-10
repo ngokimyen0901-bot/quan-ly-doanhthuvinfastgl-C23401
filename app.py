@@ -750,15 +750,21 @@ else:
 
 # TAB 1: BẢNG TÍNH WEB
 with tab_work:
-    df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)]
-    df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])]
+    df_hoanthanh = df_master[
+        df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)
+    ].copy()
+    df_chuahoanthanh = df_master[
+        ~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])
+    ].copy()
     chua_hoan_thanh_cnt = len(df_chuahoanthanh)
 
-    def xac_dinh_ky_quan_tri(row, thang_hien_hanh="Tháng 10/2026"):
+    # --- HÀM TÍNH KỲ QUẢN TRỊ THEO LOGIC MỚI ---
+    def tinh_ky_quan_tri_chuan(row):
         shd = str(row.get('Số hóa đơn', '')).strip()
         ngay_hd = row.get('Ngày xuất hóa đơn', row.get('Ngày HĐ', ''))
         co_hd = bool(shd and shd.lower() not in ['', 'nan', 'none', '0'])
-        
+
+        # 1. TRƯỜNG HỢP ĐÃ CÓ HÓA ĐƠN: Ăn theo tháng xuất HĐ thực tế
         if co_hd and pd.notna(ngay_hd) and str(ngay_hd).strip() not in ['', 'nan', 'None']:
             try:
                 d_hd = pd.to_datetime(ngay_hd, errors='coerce', dayfirst=True)
@@ -767,22 +773,46 @@ with tab_work:
             except Exception:
                 pass
 
-        return thang_hien_hanh
+        # 2. TRƯỜNG HỢP CHƯA XUẤT HÓA ĐƠN: Đóng tháng n -> Tự động đẩy sang tháng n+1
+        tg_dong = row.get('Thời gian đóng LSC', '')
+        d_lsc = lay_ngay_lsc(row.get('Số lệnh sửa chữa', ''), tg_dong)
+        
+        # Nếu không bóc tách được ngày qua hàm lay_ngay_lsc, thử parse trực tiếp
+        if pd.isna(d_lsc) and pd.notna(tg_dong) and str(tg_dong).strip():
+            d_lsc = pd.to_datetime(tg_dong, errors='coerce')
 
-    THANG_HIEN_TAI = "Tháng 10/2026"
-    df_hoanthanh['Ky_Doanh_Thu'] = df_hoanthanh.apply(lambda r: xac_dinh_ky_quan_tri(r, THANG_HIEN_TAI), axis=1)
+        if pd.notna(d_lsc):
+            # Cộng thêm 1 tháng (tháng n -> tháng n+1)
+            d_next = d_lsc + pd.DateOffset(months=1)
+            return d_next.strftime("Tháng %m/%Y")
 
-    danh_sach_thang = sorted(list(set([str(k) for k in df_hoanthanh['Ky_Doanh_Thu'].unique() if str(k) not in ['', 'nan', 'None']])))
-    if THANG_HIEN_TAI not in danh_sach_thang:
-        danh_sach_thang.append(THANG_HIEN_TAI)
-    danh_sach_thang = sorted(danh_sach_thang, reverse=True)
+        # Trường hợp không có cả ngày đóng LSC: lấy tháng hiện tại của hệ thống
+        return pd.Timestamp.now().strftime("Tháng %m/%Y")
+
+    # Gán kỳ doanh thu vào DataFrame
+    df_hoanthanh['Ky_Doanh_Thu'] = df_hoanthanh.apply(tinh_ky_quan_tri_chuan, axis=1)
+
+    # Lấy chuỗi tháng hiện tại theo thời gian thực (VD hiện tại là 'Tháng 11/2026')
+    thang_he_thong = pd.Timestamp.now().strftime("Tháng %m/%Y")
+
+    # Tạo danh sách các tháng phát sinh trong dữ liệu
+    ds_thang_data = [str(k) for k in df_hoanthanh['Ky_Doanh_Thu'].unique() if str(k) not in ['', 'nan', 'None']]
+    if thang_he_thong not in ds_thang_data:
+        ds_thang_data.append(thang_he_thong)
+    
+    # Sắp xếp tháng mới nhất lên đầu
+    danh_sach_thang = sorted(list(set(ds_thang_data)), reverse=True)
+    danh_sach_lua_chon = ["Tất cả các tháng"] + danh_sach_thang
+
+    # TỰ ĐỘNG CHỌN THÁNG: Ưu tiên chọn đúng tháng hiện tại
+    default_idx = danh_sach_lua_chon.index(thang_he_thong) if thang_he_thong in danh_sach_lua_chon else 1
 
     col_k1, _ = st.columns([4, 6])
     with col_k1:
         sel_thang = st.selectbox(
             "📅 CHỌN THÁNG QUẢN TRỊ DOANH THU & HÓA ĐƠN:",
-            ["Tất cả các tháng"] + danh_sach_thang,
-            index=0
+            danh_sach_lua_chon,
+            index=default_idx
         )
 
     if sel_thang != "Tất cả các tháng":
