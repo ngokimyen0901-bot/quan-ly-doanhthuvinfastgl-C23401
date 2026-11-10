@@ -750,21 +750,22 @@ else:
 
 # TAB 1: BẢNG TÍNH WEB
 with tab_work:
-    df_hoanthanh = df_master[
-        df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)
-    ].copy()
-    df_chuahoanthanh = df_master[
-        ~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])
-    ].copy()
+    df_hoanthanh = df_master[df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)].copy()
+    df_chuahoanthanh = df_master[~df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH + ['Đã hủy'])].copy()
     chua_hoan_thanh_cnt = len(df_chuahoanthanh)
 
-    # --- HÀM TÍNH KỲ QUẢN TRỊ THEO LOGIC MỚI ---
-    def tinh_ky_quan_tri_chuan(row):
+    # 1. Xác định mốc tháng hiện tại theo lịch thực tế của hệ thống (Ví dụ: 11/2026)
+    now = pd.Timestamp.now()
+    thang_hien_tai_str = now.strftime("Tháng %m/%Y")
+    dau_thang_hien_tai = pd.Timestamp(year=now.year, month=now.month, day=1)
+
+    # 2. Hàm phân bổ kỳ lũy kế
+    def tinh_ky_quan_tri_luy_ke(row):
         shd = str(row.get('Số hóa đơn', '')).strip()
         ngay_hd = row.get('Ngày xuất hóa đơn', row.get('Ngày HĐ', ''))
         co_hd = bool(shd and shd.lower() not in ['', 'nan', 'none', '0'])
 
-        # 1. TRƯỜNG HỢP ĐÃ CÓ HÓA ĐƠN: Ăn theo tháng xuất HĐ thực tế
+        # TH1: ĐÃ XUẤT HÓA ĐƠN -> Ghi nhận cố định theo đúng tháng của Hóa Đơn
         if co_hd and pd.notna(ngay_hd) and str(ngay_hd).strip() not in ['', 'nan', 'None']:
             try:
                 d_hd = pd.to_datetime(ngay_hd, errors='coerce', dayfirst=True)
@@ -773,39 +774,30 @@ with tab_work:
             except Exception:
                 pass
 
-        # 2. TRƯỜNG HỢP CHƯA XUẤT HÓA ĐƠN: Đóng tháng n -> Tự động đẩy sang tháng n+1
+        # TH2: CHƯA XUẤT HÓA ĐƠN -> Luân chuyển dồn về tháng hiện tại
         tg_dong = row.get('Thời gian đóng LSC', '')
         d_lsc = lay_ngay_lsc(row.get('Số lệnh sửa chữa', ''), tg_dong)
-        
-        # Nếu không bóc tách được ngày qua hàm lay_ngay_lsc, thử parse trực tiếp
         if pd.isna(d_lsc) and pd.notna(tg_dong) and str(tg_dong).strip():
             d_lsc = pd.to_datetime(tg_dong, errors='coerce')
 
-        if pd.notna(d_lsc):
-            # Cộng thêm 1 tháng (tháng n -> tháng n+1)
-            d_next = d_lsc + pd.DateOffset(months=1)
-            return d_next.strftime("Tháng %m/%Y")
+        # Dù đóng ở T9, T10 hay trong T11, nếu chưa XHĐ thì mốc theo dõi cao nhất lúc này luôn là Tháng Hiện Tại (T11)
+        # Chỉ khi lịch thực tế bước qua 01/12 thì now mới thành 12 và tự khắc đẩy sang T12
+        return thang_hien_tai_str
 
-        # Trường hợp không có cả ngày đóng LSC: lấy tháng hiện tại của hệ thống
-        return pd.Timestamp.now().strftime("Tháng %m/%Y")
+    # Gán kỳ doanh thu vào bảng
+    df_hoanthanh['Ky_Doanh_Thu'] = df_hoanthanh.apply(tinh_ky_quan_tri_luy_ke, axis=1)
 
-    # Gán kỳ doanh thu vào DataFrame
-    df_hoanthanh['Ky_Doanh_Thu'] = df_hoanthanh.apply(tinh_ky_quan_tri_chuan, axis=1)
-
-    # Lấy chuỗi tháng hiện tại theo thời gian thực (VD hiện tại là 'Tháng 11/2026')
-    thang_he_thong = pd.Timestamp.now().strftime("Tháng %m/%Y")
-
-    # Tạo danh sách các tháng phát sinh trong dữ liệu
+    # 3. Lấy danh sách tháng có dữ liệu thực tế (chỉ chứa các tháng từ quá khứ đến hiện tại)
     ds_thang_data = [str(k) for k in df_hoanthanh['Ky_Doanh_Thu'].unique() if str(k) not in ['', 'nan', 'None']]
-    if thang_he_thong not in ds_thang_data:
-        ds_thang_data.append(thang_he_thong)
-    
-    # Sắp xếp tháng mới nhất lên đầu
+    if thang_hien_tai_str not in ds_thang_data:
+        ds_thang_data.append(thang_hien_tai_str)
+
+    # Sắp xếp tháng gần nhất lên đầu (VD: Tháng 11/2026, Tháng 10/2026, Tháng 09/2026...)
     danh_sach_thang = sorted(list(set(ds_thang_data)), reverse=True)
     danh_sach_lua_chon = ["Tất cả các tháng"] + danh_sach_thang
 
-    # TỰ ĐỘNG CHỌN THÁNG: Ưu tiên chọn đúng tháng hiện tại
-    default_idx = danh_sach_lua_chon.index(thang_he_thong) if thang_he_thong in danh_sach_lua_chon else 1
+    # 4. Tự động chọn đúng Tháng hiện tại khi mở web
+    default_idx = danh_sach_lua_chon.index(thang_hien_tai_str) if thang_hien_tai_str in danh_sach_lua_chon else 1
 
     col_k1, _ = st.columns([4, 6])
     with col_k1:
