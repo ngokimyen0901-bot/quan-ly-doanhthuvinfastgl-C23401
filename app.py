@@ -1,8 +1,3 @@
-
-
-
-Biểu tượng PY
-app
 import streamlit as st
 import pandas as pd
 import io
@@ -134,12 +129,12 @@ def clean_ngay_chuan(val):
     val_str = str(val).strip()
     if val_str.lower() in ['nan', 'none', '', 'nat']:
         return ""
-    match_dmy = re.search(r'( \d{1,2}[/-]\d{1,2}[/-]\d{4} )', val_str)
+    match_dmy = re.search(r'(\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b)', val_str)
     if match_dmy:
         d_str = match_dmy.group(1).replace('-', '/')
         parts = d_str.split('/')
         return f"{int(parts[0]):02d}/{int(parts[1]):02d}/{parts[2]}"
-    match_ymd = re.search(r'( \d{4}[/-]\d{1,2}[/-]\d{1,2} )', val_str)
+    match_ymd = re.search(r'(\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b)', val_str)
     if match_ymd:
         parts = match_ymd.group(1).replace('/', '-').split('-')
         return f"{int(parts[2]):02d}/{int(parts[1]):02d}/{parts[0]}"
@@ -951,7 +946,7 @@ with tab_work:
     st.markdown("##### 📌 Lọc Chi Tiết Theo Tiêu Đề Cột:")
     f_box1, f_box2, f_box3 = st.columns(3)
 
-    df_show['ngay_dong_lsc_loc'] = df_show['Thời gian đóng LSC'].astype(str).str.extract(r'( \d{4}[/-]\d{1,2}[/-]\d{1,2} )')[0].fillna('')
+    df_show['ngay_dong_lsc_loc'] = df_show['Thời gian đóng LSC'].astype(str).str.extract(r'(\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b)')[0].fillna('')
 
     with f_box1:
         list_all_days = sorted([x for x in df_show['ngay_dong_lsc_loc'].unique() if x], reverse=True)
@@ -1712,4 +1707,3 @@ if is_admin:
                 cols_display = ['Số lệnh sửa chữa', 'Trạng thái', 'Biển số', 'Cố vấn dịch vụ', 'Tên khách hàng', 'Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán', 'Ghi chú']
                 cols_valid = [c for c in cols_display if c in df_chua_up.columns]
                 st.dataframe(df_chua_up[cols_valid], use_container_width=True)
-Đang phân tích
