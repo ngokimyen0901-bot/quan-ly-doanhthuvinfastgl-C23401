@@ -1,3 +1,8 @@
+
+
+
+Biểu tượng PY
+app
 import streamlit as st
 import pandas as pd
 import io
@@ -129,12 +134,12 @@ def clean_ngay_chuan(val):
     val_str = str(val).strip()
     if val_str.lower() in ['nan', 'none', '', 'nat']:
         return ""
-    match_dmy = re.search(r'(\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b)', val_str)
+    match_dmy = re.search(r'( \d{1,2}[/-]\d{1,2}[/-]\d{4} )', val_str)
     if match_dmy:
         d_str = match_dmy.group(1).replace('-', '/')
         parts = d_str.split('/')
         return f"{int(parts[0]):02d}/{int(parts[1]):02d}/{parts[2]}"
-    match_ymd = re.search(r'(\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b)', val_str)
+    match_ymd = re.search(r'( \d{4}[/-]\d{1,2}[/-]\d{1,2} )', val_str)
     if match_ymd:
         parts = match_ymd.group(1).replace('/', '-').split('-')
         return f"{int(parts[2]):02d}/{int(parts[1]):02d}/{parts[0]}"
@@ -415,21 +420,22 @@ def chuan_hoa_kieu_du_lieu(df_input):
             df_out[col] = pd.to_numeric(clean_tien_series(df_out[col]), errors='coerce').fillna(0.0).astype(float)
     return df_out
 
-def loc_chuan_tu_29_thang_8(df_target):
+def loc_chuan_tu_29_thang_8(df_target, ap_dung_loc_ngay=False):
     if df_target is None or len(df_target) == 0:
         return df_target
     df_res = df_target.copy()
     df_res['temp_norm_key'] = df_res['Số lệnh sửa chữa'].apply(norm_lsc_key)
     df_res = df_res[df_res['temp_norm_key'].str.len() > 3]
 
-    def check_ngay_hop_le(row):
-        d = lay_ngay_lsc(row.get('Số lệnh sửa chữa', ''), row.get('Thời gian đóng LSC', ''))
-        if pd.isna(d):
-            return True
-        return d >= MOC_BAT_DAU_DATE
+    if ap_dung_loc_ngay:
+        def check_ngay_hop_le(row):
+            d = lay_ngay_lsc(row.get('Số lệnh sửa chữa', ''), row.get('Thời gian đóng LSC', ''))
+            if pd.isna(d):
+                return True
+            return d >= MOC_BAT_DAU_DATE
 
-    mask_hop_le = df_res.apply(check_ngay_hop_le, axis=1)
-    df_res = df_res[mask_hop_le]
+        mask_hop_le = df_res.apply(check_ngay_hop_le, axis=1)
+        df_res = df_res[mask_hop_le]
 
     df_res['has_hd'] = df_res['Số hóa đơn'].fillna('').astype(str).str.strip().apply(lambda x: 1 if x and x not in ['0', 'nan', 'None'] else 0)
     df_res = df_res.sort_values(by=['has_hd', 'Giá trị xuất hóa đơn', 'Số tiền thanh toán cuối'], ascending=[True, True, True])
@@ -486,13 +492,13 @@ def load_data_from_gsheets():
 
     df_m = dong_bo_hoa_don(df_m)
     df_m = chuan_hoa_kieu_du_lieu(df_m)
-    df_m = loc_chuan_tu_29_thang_8(df_m)
+    df_m = loc_chuan_tu_29_thang_8(df_m, ap_dung_loc_ngay=False)
     return df_m[TAT_CA_COT]
 
 def save_data_to_gsheets(df_to_save):
     df_clean = dong_bo_hoa_don(df_to_save.copy())
     df_clean = chuan_hoa_kieu_du_lieu(df_clean)
-    df_clean = loc_chuan_tu_29_thang_8(df_clean)
+    df_clean = loc_chuan_tu_29_thang_8(df_clean, ap_dung_loc_ngay=False)
     for c in TEXT_COLUMNS:
         if c in df_clean.columns:
             df_clean[c] = df_clean[c].fillna('').astype(str)
@@ -859,7 +865,9 @@ with tab_work:
 
     mask_bh_hang = (df_hoanthanh['BH hãng thanh toán'] > 0) | (df_hoanthanh['Phân loại KH'] == 'Bảo Hành Hãng')
     df_bh_hang = df_hoanthanh[mask_bh_hang]
-    bh_chua_duyet_cnt = df_bh_hang[df_bh_hang['Phê duyệt bảo hành'].isin(['Chờ duyệt', None, 'nan', ''])].shape[0]
+    df_bh_chua_duyet = df_bh_hang[df_bh_hang['Phê duyệt bảo hành'].isin(['Chờ duyệt', None, 'nan', ''])]
+    bh_chua_duyet_cnt = len(df_bh_chua_duyet)
+    bh_chua_duyet_amt = df_bh_chua_duyet.apply(lambda r: r['BH hãng thanh toán'] if r['BH hãng thanh toán'] > 0 else r['Số tiền thanh toán cuối'], axis=1).sum() if len(df_bh_chua_duyet) > 0 else 0
     bh_total_cnt = len(df_bh_hang)
 
     mask_bh = (df_hoanthanh['BH thanh toán'] > 0) | (df_hoanthanh['Phân loại KH'] == 'Bảo Hiểm')
@@ -877,7 +885,7 @@ with tab_work:
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("📌 KH Thanh Toán (Đã xong)", f"{kh_total_cnt:,} lệnh", f"Đã xuất HĐ: {kh_da_hd_cnt}/{kh_total_cnt}")
     k2.metric("🚕 GSM Nợ (Chưa HĐ)", f"{gsm_treo_no_cnt:,} lệnh nợ", f"{gsm_treo_no_amt:,.0f} đ (Đã XHĐ: {gsm_da_hd_cnt})")
-    k3.metric("🛡️ Bảo Hành Hãng (W)", f"{bh_total_cnt:,} lệnh", f"Chưa duyệt: {bh_chua_duyet_cnt}/{bh_total_cnt}")
+    k3.metric("🛡️ Bảo Hành Hãng (W)", f"{bh_total_cnt:,} lệnh", f"{bh_chua_duyet_amt:,.0f} đ (Chưa duyệt: {bh_chua_duyet_cnt}/{bh_total_cnt})")
     k4.metric("🏢 Bảo Hiểm (Insurance)", f"{bh_total_all_cnt:,} lệnh", f"Chưa xuất HĐ: {bh_chua_hd_cnt}/{bh_total_all_cnt}")
     k5.metric("⏳ Đang Làm / Báo Giá", f"{chua_hoan_thanh_cnt:,} lệnh", "Chờ hoàn thành")
 
@@ -938,12 +946,12 @@ with tab_work:
         df_show = df_master.copy()
         sheet_file_name = "Tong_Hop_Toan_Bo"
 
-    df_show = loc_chuan_tu_29_thang_8(df_show)
+    df_show = loc_chuan_tu_29_thang_8(df_show, ap_dung_loc_ngay=False)
 
     st.markdown("##### 📌 Lọc Chi Tiết Theo Tiêu Đề Cột:")
     f_box1, f_box2, f_box3 = st.columns(3)
 
-    df_show['ngay_dong_lsc_loc'] = df_show['Thời gian đóng LSC'].astype(str).str.extract(r'(\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b)')[0].fillna('')
+    df_show['ngay_dong_lsc_loc'] = df_show['Thời gian đóng LSC'].astype(str).str.extract(r'( \d{4}[/-]\d{1,2}[/-]\d{1,2} )')[0].fillna('')
 
     with f_box1:
         list_all_days = sorted([x for x in df_show['ngay_dong_lsc_loc'].unique() if x], reverse=True)
@@ -1056,7 +1064,6 @@ with tab_work:
     df_render = df_show[actual_cols].copy()
     cols_to_hide_in_excel = [c for c in tat_ca_cot_bang if c not in selected_cols]
 
-    # Tô màu trực tiếp trên DataFrame (Pandas Styler) cho cột Mức độ phê duyệt
     def style_muc_do_phe_duyet(val):
         v = str(val).strip()
         if v == "Phê duyệt toàn bộ":
@@ -1072,24 +1079,30 @@ with tab_work:
 
     is_admin = st.session_state.logged_in
 
+    if is_admin:
+        st.caption("💡 **Mẹo:** Bạn có thể kéo xuống cuối bảng bấm dấu **`+`** (hoặc dán thẳng dòng mới) để thêm lệnh mới, sau đó bấm **`☁️ Lưu Trực Tiếp Lên Google Sheets`**.")
+
     col_cfg = {
         "STT": st.column_config.NumberColumn("STT", disabled=True, width="small"),
-        "Số lệnh sửa chữa": st.column_config.TextColumn("Số LSC", disabled=True),
-        "Trạng thái": st.column_config.TextColumn("Trạng thái", disabled=True),
+        "Số lệnh sửa chữa": st.column_config.TextColumn("Số LSC", disabled=not is_admin),
+        "Trạng thái": st.column_config.SelectboxColumn(
+            "Trạng thái",
+            options=["Đã đóng", "Sẵn sàng bàn giao", "Đang sửa chữa", "Báo giá", "Đã hủy"],
+            disabled=not is_admin
+        ),
         "Cố vấn dịch vụ": st.column_config.TextColumn("Cố vấn dịch vụ", disabled=not is_admin),
         "Tên khách hàng": st.column_config.TextColumn("Tên khách hàng", disabled=not is_admin),
-        "Thời gian đóng LSC": st.column_config.TextColumn("Thời gian đóng LSC", disabled=True),
+        "Thời gian đóng LSC": st.column_config.TextColumn("Thời gian đóng LSC", disabled=not is_admin),
         "Biển số": st.column_config.TextColumn("Biển số", disabled=not is_admin),
         "Phân loại KH": st.column_config.SelectboxColumn(
             "Phân loại KH", 
             options=["KH Thông Thường", "Bảo Hiểm", "Bảo Hành Hãng", "Nội Bộ / PDI", "GSM Công nợ"], 
-            disabled=not is_admin, 
-            required=True
+            disabled=not is_admin
         ),
-        "Xe GSM": st.column_config.TextColumn("Xe GSM", disabled=True),
+        "Xe GSM": st.column_config.TextColumn("Xe GSM", disabled=not is_admin),
         "Phê duyệt bảo hành": st.column_config.SelectboxColumn(
             "Phê duyệt BH",
-            options=["Chờ duyệt", "Đã duyệt", "Từ chối"],
+            options=["", "Chờ duyệt", "Đã duyệt", "Từ chối"],
             disabled=not is_admin,
             required=False
         ),
@@ -1101,21 +1114,21 @@ with tab_work:
         ),
         "Bảng kê (WCS)": st.column_config.TextColumn("Bảng kê (WCS)", disabled=not is_admin),
         "Kỳ phê duyệt": st.column_config.TextColumn("Kỳ phê duyệt", disabled=not is_admin),
-        "Tổng tiền công": st.column_config.NumberColumn("Tổng tiền công", format="%,d đ", disabled=True),
-        "Tổng tiền phụ tùng": st.column_config.NumberColumn("Tổng phụ tùng", format="%,d đ", disabled=True),
-        "Tổng trước chiết khấu": st.column_config.NumberColumn("Trước CK", format="%,d đ", disabled=True),
-        "Chiết khấu đại lý": st.column_config.NumberColumn("CK đại lý", format="%,d đ", disabled=True),
-        "Tổng chiết khấu": st.column_config.NumberColumn("Tổng CK", format="%,d đ", disabled=True),
-        "Tổng sau chiết khấu": st.column_config.NumberColumn("Sau CK", format="%,d đ", disabled=True),
-        "Tiền VAT": st.column_config.NumberColumn("Tiền VAT", format="%,d đ", disabled=True),
-        "Tổng có VAT": st.column_config.NumberColumn("Tổng có VAT", format="%,d đ", disabled=True),
-        "Chiết khấu VinClub": st.column_config.NumberColumn("CK VinClub", format="%,d đ", disabled=True),
-        "Số tiền thanh toán cuối": st.column_config.NumberColumn("Tổng TT cuối", format="%,d đ", disabled=True),
-        "Tiền đặt cọc": st.column_config.NumberColumn("Tiền đặt cọc", format="%,d đ", disabled=True),
-        "KH thanh toán": st.column_config.NumberColumn("KH thanh toán", format="%,d đ", disabled=True),
-        "BH thanh toán": st.column_config.NumberColumn("BH thanh toán", format="%,d đ", disabled=True),
-        "BH hãng thanh toán": st.column_config.NumberColumn("BH hãng thanh toán", format="%,d đ", disabled=True),
-        "Nội bộ thanh toán": st.column_config.NumberColumn("Nội bộ thanh toán", format="%,d đ", disabled=True),
+        "Tổng tiền công": st.column_config.NumberColumn("Tổng tiền công", format="%,d đ", disabled=not is_admin),
+        "Tổng tiền phụ tùng": st.column_config.NumberColumn("Tổng phụ tùng", format="%,d đ", disabled=not is_admin),
+        "Tổng trước chiết khấu": st.column_config.NumberColumn("Trước CK", format="%,d đ", disabled=not is_admin),
+        "Chiết khấu đại lý": st.column_config.NumberColumn("CK đại lý", format="%,d đ", disabled=not is_admin),
+        "Tổng chiết khấu": st.column_config.NumberColumn("Tổng CK", format="%,d đ", disabled=not is_admin),
+        "Tổng sau chiết khấu": st.column_config.NumberColumn("Sau CK", format="%,d đ", disabled=not is_admin),
+        "Tiền VAT": st.column_config.NumberColumn("Tiền VAT", format="%,d đ", disabled=not is_admin),
+        "Tổng có VAT": st.column_config.NumberColumn("Tổng có VAT", format="%,d đ", disabled=not is_admin),
+        "Chiết khấu VinClub": st.column_config.NumberColumn("CK VinClub", format="%,d đ", disabled=not is_admin),
+        "Số tiền thanh toán cuối": st.column_config.NumberColumn("Tổng TT cuối", format="%,d đ", disabled=not is_admin),
+        "Tiền đặt cọc": st.column_config.NumberColumn("Tiền đặt cọc", format="%,d đ", disabled=not is_admin),
+        "KH thanh toán": st.column_config.NumberColumn("KH thanh toán", format="%,d đ", disabled=not is_admin),
+        "BH thanh toán": st.column_config.NumberColumn("BH thanh toán", format="%,d đ", disabled=not is_admin),
+        "BH hãng thanh toán": st.column_config.NumberColumn("BH hãng thanh toán", format="%,d đ", disabled=not is_admin),
+        "Nội bộ thanh toán": st.column_config.NumberColumn("Nội bộ thanh toán", format="%,d đ", disabled=not is_admin),
         "Số hóa đơn": st.column_config.TextColumn("Số HĐ", disabled=not is_admin),
         "Ngày xuất hóa đơn": st.column_config.TextColumn("Ngày HĐ", disabled=not is_admin),
         "Giá trị xuất hóa đơn": st.column_config.NumberColumn("Tiền HĐ", format="%,d đ", disabled=not is_admin),
@@ -1128,7 +1141,7 @@ with tab_work:
         height=560,
         column_config=col_cfg,
         disabled=(not is_admin),
-        num_rows="fixed",
+        num_rows="dynamic" if is_admin else "fixed",
         hide_index=True,
         key=f"data_editor_table_gsheets_{luong_data}"
     )
@@ -1140,25 +1153,58 @@ with tab_work:
         if is_admin:
             if st.button("☁️ Lưu Trực Tiếp Lên Google Sheets", type="primary", use_container_width=True):
                 prog = st.progress(0)
-                edit_dict = edited_df.set_index('Số lệnh sửa chữa').to_dict('index')
-                total_rows = len(df_master)
-                cols_editable = [
-                    'Phê duyệt bảo hành', 'Mức độ phê duyệt', 'Bảng kê (WCS)', 'Kỳ phê duyệt',
-                    'Phân loại KH', 'Số hóa đơn', 'Ngày xuất hóa đơn', 'Giá trị xuất hóa đơn', 
-                    'Cố vấn dịch vụ', 'Tên khách hàng', 'Biển số', 'Ghi chú'
+                df_edited_clean = edited_df.copy()
+                df_edited_clean = df_edited_clean[
+                    df_edited_clean['Số lệnh sửa chữa'].notna() & 
+                    (df_edited_clean['Số lệnh sửa chữa'].astype(str).str.strip() != '')
                 ]
-                for idx in range(total_rows):
-                    r_lsc = df_master.iloc[idx]['Số lệnh sửa chữa']
-                    if r_lsc in edit_dict:
-                        for c in cols_editable:
-                            if c in edit_dict[r_lsc]:
-                                df_master.at[df_master.index[idx], c] = edit_dict[r_lsc][c]
-                    if idx % 100 == 0:
-                        prog.progress(int((idx / total_rows) * 80))
-                        
+
+                existing_keys = {norm_lsc_key(x): idx for idx, x in enumerate(df_master['Số lệnh sửa chữa'])}
+                cols_sync = [c for c in TAT_CA_COT if c in df_edited_clean.columns]
+                new_added_rows = []
+
+                for _, e_row in df_edited_clean.iterrows():
+                    raw_lsc = clean_lsc_giu_gach(e_row['Số lệnh sửa chữa'])
+                    k_norm = norm_lsc_key(raw_lsc)
+                    if not k_norm:
+                        continue
+
+                    if k_norm in existing_keys:
+                        m_idx = existing_keys[k_norm]
+                        for c in cols_sync:
+                            if c != 'Số lệnh sửa chữa' and pd.notna(e_row[c]):
+                                df_master.at[df_master.index[m_idx], c] = e_row[c]
+                    else:
+                        new_rec = {c: (0.0 if c in COT_TIEN + ['Giá trị xuất hóa đơn'] else '') for c in TAT_CA_COT}
+                        new_rec['Số lệnh sửa chữa'] = raw_lsc
+                        new_rec['Trạng thái'] = 'Đã đóng'
+                        new_rec['Xe GSM'] = 'Không'
+                        if luong_data == "4. Bảo Hiểm (Insurance)":
+                            new_rec['Phân loại KH'] = 'Bảo Hiểm'
+                        elif luong_data == "3. Bảo Hành Hãng (W) - Phê duyệt":
+                            new_rec['Phân loại KH'] = 'Bảo Hành Hãng'
+                        elif luong_data == "2. GSM Công Nợ (Lấy từ Google Sheets)":
+                            new_rec['Phân loại KH'] = 'GSM Công nợ'
+                        elif luong_data == "5. Nội bộ thanh toán":
+                            new_rec['Phân loại KH'] = 'Nội Bộ / PDI'
+                        else:
+                            new_rec['Phân loại KH'] = 'KH Thông Thường'
+
+                        for c in cols_sync:
+                            val_cell = e_row[c]
+                            if pd.notna(val_cell) and str(val_cell).strip() != '':
+                                new_rec[c] = val_cell
+
+                        new_added_rows.append(new_rec)
+                        existing_keys[k_norm] = -1
+
+                prog.progress(60)
+                if new_added_rows:
+                    df_master = pd.concat([df_master, pd.DataFrame(new_added_rows)], ignore_index=True)
+
                 save_data_to_gsheets(df_master)
                 prog.progress(100)
-                st.success("✅ Dữ liệu đã lưu vĩnh viễn lên Google Sheets!")
+                st.success(f"✅ Đã lưu vĩnh viễn lên Google Sheets! (Thêm mới: {len(new_added_rows)} dòng)")
                 st.rerun()
 
     with c_btn1_undo:
@@ -1170,7 +1216,7 @@ with tab_work:
         if is_admin:
             if st.button("🧹 Lọc Chặn Chuẩn (Từ 29/08)", use_container_width=True):
                 truoc_do = len(df_master)
-                df_master = loc_chuan_tu_29_thang_8(df_master)
+                df_master = loc_chuan_tu_29_thang_8(df_master, ap_dung_loc_ngay=True)
                 save_data_to_gsheets(df_master)
                 da_xoa = truoc_do - len(df_master)
                 st.success(f"✅ Đã dọn dẹp sạch {da_xoa} dòng cũ trên Google Sheets.")
@@ -1274,7 +1320,7 @@ if is_admin:
 
                 df_inc = dong_bo_hoa_don(df_inc)
                 df_inc = chuan_hoa_kieu_du_lieu(df_inc)
-                df_inc = loc_chuan_tu_29_thang_8(df_inc)
+                df_inc = loc_chuan_tu_29_thang_8(df_inc, ap_dung_loc_ngay=True)
 
                 p_bar_dms = st.progress(0)
                 txt_dms = st.empty()
@@ -1292,7 +1338,6 @@ if is_admin:
                 status_updated_cnt = 0
                 total_inc = len(df_inc)
 
-                # Bảo vệ toàn bộ cột hóa đơn và cột phê duyệt bảo hành khỏi bị DMS ghi đè lại thành Chờ duyệt
                 COT_BAO_VE = [
                     'Số hóa đơn', 'Số HĐ', 
                     'Ngày xuất hóa đơn', 'Ngày xuất hoá đơn', 'Ngày HĐ', 
@@ -1499,7 +1544,6 @@ if is_admin:
             idx_bh_wcs = next((i for i, c in enumerate(bh_cols) if any(k in c.lower() for k in ['bảng kê', 'wcs', 'claim', 'mã bảng kê', 'số bảng kê'])), -1)
             idx_bh_tt = next((i for i, c in enumerate(bh_cols) if any(k in c.lower() for k in ['approved', 'duyệt', 'trạng thái', 'status'])), -1)
 
-            # Gợi ý kỳ mặc định theo tháng hiện tại
             now_ky = pd.Timestamp.now().strftime("Tháng %m/%y")
             default_ky_idx = DANH_SACH_KY_PHE_DUYET.index(now_ky) if now_ky in DANH_SACH_KY_PHE_DUYET else 0
 
@@ -1509,7 +1553,6 @@ if is_admin:
             s_ky_phe_duyet = b3.selectbox("📅 Chọn Kỳ Phê Duyệt:", DANH_SACH_KY_PHE_DUYET, index=default_ky_idx, key="sb_ky_phe_duyet")
             s_bh_tt  = b4.selectbox("📋 Cột Kiểm Tra Duyệt (Tùy chọn):", [None] + bh_cols, index=idx_bh_tt + 1 if idx_bh_tt != -1 else 0, key="sb_bh_tt")
 
-            # Ô nhập tay mã bảng kê chung nếu trong file Excel không có cột mã WCS
             ma_wcs_chung = ""
             if s_bh_wcs is None:
                 ma_wcs_chung = st.text_input("✍️ Nhập mã Bảng kê (WCS) chung cho file này (nếu trong bảng chưa có cột WCS):", placeholder="VD: C23401-WCS-2610-001")
@@ -1530,7 +1573,6 @@ if is_admin:
                     if c_key:
                         norm_map[c_key] = idx
                 
-                # Gom tất cả các dòng trong file upload theo từng WO (xử lý trường hợp 1 WO xuất hiện nhiều dòng/nhiều WCS trong cùng 1 file)
                 wo_grouped = {}
                 for _, r in df_bh_input.iterrows():
                     raw_wo = str(r[s_bh_lsc]).strip()
@@ -1548,7 +1590,6 @@ if is_admin:
                     if m_idx not in wo_grouped:
                         wo_grouped[m_idx] = {'wcs_list': [], 'is_rejected': False, 'has_approved': False}
 
-                    # Lấy mã WCS của dòng
                     wcs_val = ""
                     if s_bh_wcs and pd.notna(r[s_bh_wcs]):
                         wcs_val = str(r[s_bh_wcs]).strip()
@@ -1558,7 +1599,6 @@ if is_admin:
                     if wcs_val and wcs_val.lower() not in ['nan', 'none', ''] and wcs_val not in wo_grouped[m_idx]['wcs_list']:
                         wo_grouped[m_idx]['wcs_list'].append(wcs_val)
 
-                    # Kiểm tra trạng thái duyệt
                     if s_bh_tt and pd.notna(r[s_bh_tt]):
                         val_tt = str(r[s_bh_tt]).strip().lower()
                         if any(w in val_tt for w in ['từ chối', 'reject', 'không duyệt']):
@@ -1572,13 +1612,11 @@ if is_admin:
                 total_wo = len(wo_grouped)
 
                 for i_wo, (m_idx, info) in enumerate(wo_grouped.items()):
-                    # 1. Cập nhật Phê duyệt bảo hành (nếu có bất kỳ dòng nào duyệt thì là Đã duyệt, chỉ Từ chối khi tất cả đều bị từ chối)
                     if info['has_approved']:
                         df_master.at[m_idx, 'Phê duyệt bảo hành'] = "Đã duyệt"
                     elif info['is_rejected']:
                         df_master.at[m_idx, 'Phê duyệt bảo hành'] = "Từ chối"
 
-                    # 2. Nối dồn Bảng kê (WCS) không trùng lặp
                     cur_wcs_str = str(df_master.at[m_idx, 'Bảng kê (WCS)']).strip()
                     existing_wcs = [x.strip() for x in cur_wcs_str.split(',') if x.strip() and x.strip().lower() not in ['nan', 'none']]
                     for w_new in info['wcs_list']:
@@ -1586,7 +1624,6 @@ if is_admin:
                             existing_wcs.append(w_new)
                     df_master.at[m_idx, 'Bảng kê (WCS)'] = ", ".join(existing_wcs)
 
-                    # 3. Nối dồn Kỳ phê duyệt không trùng lặp (VD: Tháng 10/26, Tháng 11/26)
                     cur_ky_str = str(df_master.at[m_idx, 'Kỳ phê duyệt']).strip()
                     existing_ky = [x.strip() for x in cur_ky_str.split(',') if x.strip() and x.strip().lower() not in ['nan', 'none']]
                     if s_ky_phe_duyet and s_ky_phe_duyet not in existing_ky:
@@ -1675,3 +1712,4 @@ if is_admin:
                 cols_display = ['Số lệnh sửa chữa', 'Trạng thái', 'Biển số', 'Cố vấn dịch vụ', 'Tên khách hàng', 'Số tiền thanh toán cuối', 'KH thanh toán', 'BH thanh toán', 'BH hãng thanh toán', 'Ghi chú']
                 cols_valid = [c for c in cols_display if c in df_chua_up.columns]
                 st.dataframe(df_chua_up[cols_valid], use_container_width=True)
+Đang phân tích
