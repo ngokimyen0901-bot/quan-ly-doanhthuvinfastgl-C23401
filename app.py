@@ -474,10 +474,21 @@ def load_data_from_gsheets():
         
         if is_gsm_match:
             df_m.at[idx, 'Phân loại KH'] = "GSM Công nợ"
-        elif cur_pl in ["Bảo Hiểm", "Bảo Hành Hãng", "Nội Bộ / PDI"]:
-            pass
-        elif not cur_pl or cur_pl in ['nan', 'None']:
-            df_m.at[idx, 'Phân loại KH'] = "KH Thông Thường"
+        else:
+            # Nếu đã xóa khỏi GSM_List thì tự động gỡ nhãn GSM Công nợ để trả về đúng nhóm
+            if cur_pl == "GSM Công nợ":
+                if float(row.get('BH hãng thanh toán', 0) or 0) > 0:
+                    df_m.at[idx, 'Phân loại KH'] = "Bảo Hành Hãng"
+                elif float(row.get('BH thanh toán', 0) or 0) > 0:
+                    df_m.at[idx, 'Phân loại KH'] = "Bảo Hiểm"
+                elif float(row.get('Nội bộ thanh toán', 0) or 0) > 0:
+                    df_m.at[idx, 'Phân loại KH'] = "Nội Bộ / PDI"
+                else:
+                    df_m.at[idx, 'Phân loại KH'] = "KH Thông Thường"
+            elif cur_pl in ["Bảo Hiểm", "Bảo Hành Hãng", "Nội Bộ / PDI"]:
+                pass
+            elif not cur_pl or cur_pl in ['nan', 'None']:
+                df_m.at[idx, 'Phân loại KH'] = "KH Thông Thường"
 
         # Nếu đã có mã Bảng kê (WCS) nhưng trạng thái Phê duyệt bảo hành vẫn trống hoặc Chờ duyệt -> tự động nhận diện Đã duyệt
         wcs_val = str(row.get('Bảng kê (WCS)', '')).strip()
@@ -547,7 +558,7 @@ def format_sheet_in_workbook(ws, sheet_name, cols_to_hide=None):
             pl_val = str(ws.cell(row=r, column=col_pl_idx).value or '').strip() if col_pl_idx != -1 else ''
 
             if tt_val in TRANG_THAI_HOAN_THANH and (shd_val in ['', 'None', 'nan', '0']):
-                if (kh_val > 0 and pl_val not in ['GSM Công nợ', 'Nội Bộ / PDI', 'Bảo Hành Hãng']) or (bh_val > 0 or pl_val == 'Bảo Hiểm'):
+                if (kh_val > 0 and pl_val != 'GSM Công nợ') or (bh_val > 0 or pl_val == 'Bảo Hiểm'):
                     is_chua_xuat_hd = True
 
         for c in range(1, ws.max_column + 1):
@@ -630,15 +641,21 @@ def xuat_excel_da_sheet_with_progress(df_full, p_bar=None, status_txt=None):
     if status_txt: status_txt.write("⏳ Đang phân tích và tách các nguồn dữ liệu... (20%)")
     if p_bar: p_bar.progress(20)
 
+    # Lệnh chưa xuất HĐ: bao gồm tất cả lệnh có KH thanh toán > 0 (trừ GSM) hoặc có Bảo hiểm
     mask_chua_hd = (df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (
         df_clean['Số hóa đơn'].isna() | df_clean['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0'])
     ) & (
-        ((df_clean['KH thanh toán'] > 0) & (~df_clean['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Bảo Hành Hãng', 'Nội Bộ / PDI']))) |
+        ((df_clean['KH thanh toán'] > 0) & (df_clean['Phân loại KH'] != 'GSM Công nợ')) |
         (df_clean['BH thanh toán'] > 0) | (df_clean['Phân loại KH'] == 'Bảo Hiểm')
     )
     df_canh_bao = df_clean[mask_chua_hd].copy()
 
-    df_kh_all = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['KH thanh toán'] > 0) & (~df_clean['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Bảo Hành Hãng', 'Nội Bộ / PDI']))].copy()
+    # Sheet 1. KH Thanh Toán: lấy toàn bộ lệnh có KH thanh toán > 0 (trừ GSM Công nợ), kể cả lệnh gộp vừa có BH hãng vừa có KH trả
+    df_kh_all = df_clean[
+        (df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & 
+        (df_clean['KH thanh toán'] > 0) & 
+        (df_clean['Phân loại KH'] != 'GSM Công nợ')
+    ].copy()
     df_gsm_debt = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (df_clean['Phân loại KH'] == 'GSM Công nợ')].copy()
     df_bh_hang = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & ((df_clean['BH hãng thanh toán'] > 0) | (df_clean['Phân loại KH'] == 'Bảo Hành Hãng'))].copy()
     df_bh = df_clean[(df_clean['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & ((df_clean['BH thanh toán'] > 0) | (df_clean['Phân loại KH'] == 'Bảo Hiểm'))].copy()
@@ -926,7 +943,7 @@ with tab_work:
         sheet_file_name = "5_Noi_Bo"
     elif luong_data == "🚨 Lệnh Đã Xong Chưa Xuất HĐ (Chỉ KH & Bảo Hiểm)":
         mask_target = (df_master['Trạng thái'].isin(TRANG_THAI_HOAN_THANH)) & (
-            ((df_master['KH thanh toán'] > 0) & (~df_master['Phân loại KH'].isin(['GSM Công nợ', 'Bảo Hiểm', 'Bảo Hành Hãng', 'Nội Bộ / PDI']))) |
+            ((df_master['KH thanh toán'] > 0) & (df_master['Phân loại KH'] != 'GSM Công nợ')) |
             (df_master['BH thanh toán'] > 0) | (df_master['Phân loại KH'] == 'Bảo Hiểm')
         ) & (df_master['Số hóa đơn'].isna() | df_master['Số hóa đơn'].astype(str).str.strip().isin(['', 'nan', 'None', '0']))
         df_show = df_master[mask_target].copy()
