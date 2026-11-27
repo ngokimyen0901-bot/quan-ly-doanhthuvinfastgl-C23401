@@ -1153,7 +1153,7 @@ with tab_work:
         height=560,
         column_config=col_cfg,
         disabled=(not is_admin),
-        num_rows="dynamic" if is_admin else "fixed",
+        num_rows="fixed",
         hide_index=True,
         key=f"data_editor_table_gsheets_{luong_data}"
     )
